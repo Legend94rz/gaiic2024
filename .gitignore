@@ -1,0 +1,8 @@
+.trash/
+ckpt/
+data/
+work_dirs/
+**/__pycache__/
+.vscode/
+eda.ipynb
+*.csv
