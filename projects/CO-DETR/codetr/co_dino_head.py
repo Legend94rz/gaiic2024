@@ -141,7 +141,7 @@ class CoDINOHead(DINOHead):
                 attn_mask,
                 reg_branches=self.reg_branches if self.with_box_refine else None,  # noqa:E501
                 cls_branches=self.cls_branches if self.as_two_stage else None,  # noqa:E501
-                value2=tir_feat
+                mlvl_tir_feats=tir_feat
             )
         outs = []
         num_level = len(mlvl_feats)
@@ -187,11 +187,11 @@ class CoDINOHead(DINOHead):
     def predict(self,
                 feats: List[Tensor],
                 batch_data_samples: SampleList,
-                rescale: bool = True) -> InstanceList:
+                rescale: bool = True, tir_feature=None) -> InstanceList:
         batch_img_metas = [
             data_samples.metainfo for data_samples in batch_data_samples
         ]
-        outs = self.forward(feats, batch_img_metas)
+        outs = self.forward(feats, batch_img_metas, tir_feat=tir_feature)
 
         predictions = self.predict_by_feat(
             *outs, batch_img_metas=batch_img_metas, rescale=rescale)
@@ -300,7 +300,7 @@ class CoDINOHead(DINOHead):
 
         return results
 
-    def loss(self, x, batch_data_samples, tir_feat):
+    def loss(self, x, batch_data_samples, tir_feature):
         assert self.dn_generator is not None, '"dn_cfg" must be set'
 
         batch_gt_instances = []
@@ -313,7 +313,7 @@ class CoDINOHead(DINOHead):
             self.dn_generator(batch_data_samples)
 
         outs = self(x, batch_img_metas, dn_label_query, dn_bbox_query,
-                    attn_mask, tir_feat)
+                    attn_mask, tir_feature)
 
         loss_inputs = outs[:-1] + (batch_gt_instances, batch_img_metas,
                                    dn_meta)

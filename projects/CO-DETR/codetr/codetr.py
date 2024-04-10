@@ -156,15 +156,15 @@ class CoDETR(BaseDetector):
     def loss(self, batch_inputs: Tensor,
              batch_data_samples: SampleList, **kwargs) -> Union[dict, list]:
         batch_input_shape = batch_data_samples[0].batch_input_shape
-        tir_img = kwargs['tir']
         if self.use_lsj:
             for data_samples in batch_data_samples:
                 img_metas = data_samples.metainfo
                 input_img_h, input_img_w = batch_input_shape
                 img_metas['img_shape'] = [input_img_h, input_img_w]
 
-        x = self.extract_feat(batch_inputs)
+        tir_img = kwargs['tir']
         tir_feature = self.extract_feat(tir_img)
+        x = self.extract_feat(batch_inputs)
 
         losses = dict()
 
@@ -247,7 +247,7 @@ class CoDETR(BaseDetector):
     def predict(self,
                 batch_inputs: Tensor,
                 batch_data_samples: SampleList,
-                rescale: bool = True) -> SampleList:
+                rescale: bool = True, **kwargs) -> SampleList:
         """Predict results from a batch of inputs and data samples with post-
         processing.
 
@@ -278,7 +278,9 @@ class CoDETR(BaseDetector):
                 img_metas = data_samples.metainfo
                 input_img_h, input_img_w = img_metas['batch_input_shape']
                 img_metas['img_shape'] = [input_img_h, input_img_w]
-
+        
+        tir_img = kwargs['tir']
+        tir_feature = self.extract_feat(tir_img)
         img_feats = self.extract_feat(batch_inputs)
         if self.with_bbox and self.eval_module == 'one-stage':
             results_list = self.predict_bbox_head(
@@ -288,7 +290,7 @@ class CoDETR(BaseDetector):
                 img_feats, batch_data_samples, rescale=rescale)
         else:
             results_list = self.predict_query_head(
-                img_feats, batch_data_samples, rescale=rescale)
+                img_feats, batch_data_samples, rescale=rescale, tir_feature=tir_feature)
 
         batch_data_samples = self.add_pred_to_datasample(
             batch_data_samples, results_list)
@@ -297,9 +299,9 @@ class CoDETR(BaseDetector):
     def predict_query_head(self,
                            mlvl_feats: Tuple[Tensor],
                            batch_data_samples: SampleList,
-                           rescale: bool = True) -> InstanceList:
+                           rescale: bool = True, **kwargs) -> InstanceList:
         return self.query_head.predict(
-            mlvl_feats, batch_data_samples=batch_data_samples, rescale=rescale)
+            mlvl_feats, batch_data_samples=batch_data_samples, rescale=rescale, tir_feature=kwargs['tir_feature'])
 
     def predict_roi_head(self,
                          mlvl_feats: Tuple[Tensor],

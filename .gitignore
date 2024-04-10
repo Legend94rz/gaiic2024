@@ -6,3 +6,5 @@ work_dirs/
 .vscode/
 eda.ipynb
 *.csv
+*.pkl
+*.json
