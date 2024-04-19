@@ -162,9 +162,11 @@ class CoDETR(BaseDetector):
                 input_img_h, input_img_w = batch_input_shape
                 img_metas['img_shape'] = [input_img_h, input_img_w]
 
-        tir_img = kwargs['tir']
-        tir_feature = self.extract_feat(tir_img)
-        x = self.extract_feat(batch_inputs)
+        if 'tir' in kwargs:
+            tir_img = kwargs['tir']
+            x, tir_feature = list(zip(*[torch.split(x, len(x) // 2, dim=0) for x in self.extract_feat(torch.cat([batch_inputs, tir_img], dim=0))]))
+        else:
+            x, tir_feature = self.extract_feat(batch_inputs), None
 
         losses = dict()
 
@@ -279,9 +281,11 @@ class CoDETR(BaseDetector):
                 input_img_h, input_img_w = img_metas['batch_input_shape']
                 img_metas['img_shape'] = [input_img_h, input_img_w]
         
-        tir_img = kwargs['tir']
-        tir_feature = self.extract_feat(tir_img)
-        img_feats = self.extract_feat(batch_inputs)
+        if 'tir' in kwargs:
+            tir_img = kwargs['tir']
+            img_feats, tir_feature = list(zip(*[torch.split(x, len(x) // 2, dim=0) for x in self.extract_feat(torch.cat([batch_inputs, tir_img], dim=0))]))
+        else:
+            img_feats, tir_feature = self.extract_feat(batch_inputs), None
         if self.with_bbox and self.eval_module == 'one-stage':
             results_list = self.predict_bbox_head(
                 img_feats, batch_data_samples, rescale=rescale)

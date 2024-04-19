@@ -1130,7 +1130,7 @@ class CoDinoTransformer(CoDeformableDetrTransformer):
         lvl_pos_embed_flatten = []
         spatial_shapes = []
         tir_feat_flatten = []
-        for lvl, (feat, mask, pos_embed, tir_feat) in enumerate(zip(mlvl_feats, mlvl_masks, mlvl_pos_embeds, mlvl_tir_feats)):
+        for lvl, (feat, mask, pos_embed) in enumerate(zip(mlvl_feats, mlvl_masks, mlvl_pos_embeds)):
             bs, c, h, w = feat.shape
             spatial_shape = (h, w)
             spatial_shapes.append(spatial_shape)
@@ -1141,9 +1141,13 @@ class CoDinoTransformer(CoDeformableDetrTransformer):
             lvl_pos_embed_flatten.append(lvl_pos_embed)
             feat_flatten.append(feat)
             mask_flatten.append(mask)
-            tir_feat_flatten.append(tir_feat.flatten(2).transpose(1, 2))
+            if mlvl_tir_feats is not None:
+                tir_feat_flatten.append(mlvl_tir_feats[lvl].flatten(2).transpose(1, 2))
         feat_flatten = torch.cat(feat_flatten, 1)
-        tir_feat_flatten = torch.cat(tir_feat_flatten, 1).permute(1, 0, 2)
+        if tir_feat_flatten:
+            tir_feat_flatten = torch.cat(tir_feat_flatten, 1).permute(1, 0, 2)
+        else:
+            tir_feat_flatten = None
         mask_flatten = torch.cat(mask_flatten, 1)
         lvl_pos_embed_flatten = torch.cat(lvl_pos_embed_flatten, 1)
         spatial_shapes = torch.as_tensor(

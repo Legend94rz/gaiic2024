@@ -7,7 +7,8 @@ import torch
 import random
 
 import mmcv
-from mmcv.transforms import BaseTransform, LoadImageFromFile, RandomFlip, RandomResize, TransformBroadcaster, Normalize, Pad, LoadAnnotations, Resize, Normalize
+from mmcv.transforms import BaseTransform, LoadImageFromFile, RandomFlip, RandomResize, TransformBroadcaster, Normalize, Pad, LoadAnnotations, Normalize
+from mmdet.datasets.transforms.transforms import Resize
 from mmcv.transforms.utils import cache_random_params
 from mmengine.hooks import LoggerHook, CheckpointHook
 
@@ -78,8 +79,14 @@ class LoadTirFromPath(LoadImageFromFile):
 
 
 @TRANSFORMS.register_module()
-class CustomPackDetInputs(PackDetInputs):   
+class CustomPackDetInputs(PackDetInputs):
+    def __init__(self, drop_keys=('dataset', ), meta_keys=('img_id', 'img_path', 'ori_shape', 'img_shape', 'scale_factor', 'flip', 'flip_direction')):
+        super().__init__(meta_keys)
+        self.drop_keys = drop_keys
+
     def transform(self, results: dict) -> dict:
+        for k in self.drop_keys:
+            results.pop(k, None)
         packed_results = super().transform(results)
         packed_results['tir'] = torch.tensor(np.ascontiguousarray(results['tir'])).permute(2, 0, 1)
         return packed_results
@@ -222,7 +229,7 @@ class BugFreeTransformBroadcaster(TransformBroadcaster):
         """Broadcast wrapped transforms to multiple targets."""
 
         # Apply input remapping
-        inputs = self._map_input(copy.deepcopy(results), self.mapping)  # patch!!
+        inputs = self._map_input(results, self.mapping)  # patch!!
 
         # Scatter sequential inputs into a list
         input_scatters = self.scatter_sequence(inputs)
@@ -275,8 +282,8 @@ class GAIIC2014DatasetV2(CocoDataset):
         ann_info = raw_data_info['raw_ann_info']
 
         data_info = {}
-        data_info['img_path'] = Path(self.data_prefix['img_path']) / img_info['file_name']
-        data_info['tir_path'] = Path(self.data_prefix['tir_path']) / img_info['file_name']
+        data_info['img_path'] = Path(self.data_prefix['tir_path']) / img_info['file_name']
+        data_info['tir_path'] = Path(self.data_prefix['img_path']) / img_info['file_name']
         data_info['img_id'] = img_info['img_id']
         data_info['seg_map_path'] = None
         data_info['height'] = img_info['height']
@@ -316,7 +323,20 @@ class GAIIC2014DatasetV2(CocoDataset):
 
             instances.append(instance)
         data_info['instances'] = instances
-        data_info['dataset'] = self
         return data_info
 
+    def prepare_data(self, idx) -> Any:
+        """Get data processed by ``self.pipeline``.
 
+        Args:
+            idx (int): The index of ``data_info``.
+
+        Returns:
+            Any: Depends on ``self.pipeline``.
+        """
+        data_info = self.get_data_info(idx)
+        data_info['dataset'] = self
+        try:
+            return self.pipeline(data_info)
+        except Exception as e:
+            return None

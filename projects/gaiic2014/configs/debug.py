@@ -23,19 +23,7 @@ env_cfg = dict(
     dist_cfg=dict(backend="nccl"),
 )
 
-vis_backends = [
-    dict(type="LocalVisBackend"),
-    # dict(
-    #     type="WandbVisBackend",
-    #     init_kwargs=dict(
-    #         project="gaiic2014",
-    #         save_code=True,
-    #         settings={"code_dir": "projects"}
-    #     ),
-    #     notes="",
-    #     tags=[]
-    # )
-]
+vis_backends = [dict(type="LocalVisBackend")]
 visualizer = dict(
     type="DetLocalVisualizer", vis_backends=vis_backends, name="visualizer"
 )
@@ -46,7 +34,7 @@ num_dec_layer = 6
 loss_lambda = 2.0
 num_classes = 5
 dataset_type = "GAIIC2014DatasetV2"
-data_root = "data/track1-A/"
+data_root = "data/sample_data/"
 pretrained = "ckpt/swin_large_patch4_window12_384_22k.pth"
 load_from = "ckpt/co_dino_5scale_swin_large_16e_o365tococo-614254c9.pth"
 
@@ -137,8 +125,8 @@ model = dict(
                 transformerlayers=dict(
                     type="BaseTransformerLayer",
                     attn_cfgs=dict(
-                        # type="FuseMSDeformAttention",
-                        type="MultiScaleDeformableAttention",
+                        type="FuseMSDeformAttention",
+                        # type="MultiScaleDeformableAttention",
                         embed_dims=256,
                         num_levels=5,
                         dropout=0.0,
@@ -380,78 +368,49 @@ model = dict(
     ],
 )
 
-# train_pipeline = [
-#     dict(
-#         type='MultiInputMosaic',
-#         keys=['img', 'tir'],
-#         prob=1.0,
-#         img_scale = (640, 512),
-#         center_ratio_range = (0.7, 1.3), 
-#         pad_val = 114.0,
-#         bbox_clip_border=False,
-#         individual_pipeline=[
-#             dict(type="LoadImageFromFile"),
-#             dict(type="LoadTirFromPath"),
-#             dict(type="LoadAnnotations", with_bbox=True),
-#             dict(
-#                 type="BugFreeTransformBroadcaster",
-#                 mapping={
-#                     "img": ["tir", "img"],
-#                     "img_shape": ["img_shape", "img_shape"],
-#                     "gt_bboxes": ['gt_bboxes', 'gt_bboxes'],
-#                     "gt_bboxes_labels": ['gt_bboxes_labels', 'gt_bboxes_labels'],
-#                     "gt_ignore_flags": ['gt_ignore_flags', 'gt_ignore_flags'],
-#                 },
-#                 auto_remap=True,
-#                 share_random_params=True,
-#                 transforms=[
-#                     dict(
-#                         type='RandomCrop',
-#                         crop_type='absolute_range',
-#                         crop_size=(576, 640),
-#                         allow_negative_crop=False,
-#                     ),
-#                     dict(type='RandomFlip', prob=0.5),
-#                     dict(type='Resize', scale=(640, 512)),
-#                 ],
-#             ),
-#         ]
-#     ),
-#     # dict(type='Normalize', mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True),
-#     dict(type="CustomPackDetInputs"),
-# ]
-
 train_pipeline = [
-    dict(type="LoadImageFromFile"),
-    dict(type="LoadTirFromPath"),
-    dict(type="LoadAnnotations", with_bbox=True),
     dict(
-        type="BugFreeTransformBroadcaster",
-        mapping={
-            "img": ["tir", "img"],
-            "img_shape": ["img_shape", "img_shape"],
-            "gt_bboxes": ['gt_bboxes', 'gt_bboxes'],
-            "gt_bboxes_labels": ['gt_bboxes_labels', 'gt_bboxes_labels'],
-            "gt_ignore_flags": ['gt_ignore_flags', 'gt_ignore_flags'],
-        },
-        auto_remap=True,
-        share_random_params=True,
-        transforms=[
+        type='MultiInputMosaic',
+        keys=['img', 'tir'],
+        prob=1.0,
+        img_scale = (640, 512),
+        center_ratio_range = (0.7, 1.3), 
+        pad_val = 114.0,
+        bbox_clip_border=False,
+        individual_pipeline=[
+            dict(type="LoadImageFromFile"),
+            dict(type="LoadTirFromPath"),
+            dict(type="LoadAnnotations", with_bbox=True),
             dict(
-                type='RandomCrop',
-                crop_type='absolute_range',
-                crop_size=(576, 640),
-                allow_negative_crop=False,
+                type="BugFreeTransformBroadcaster",
+                mapping={
+                    "img": ["tir", "img"],
+                    "img_shape": ["img_shape", "img_shape"],
+                    "gt_bboxes": ['gt_bboxes', 'gt_bboxes'],
+                    "gt_bboxes_labels": ['gt_bboxes_labels', 'gt_bboxes_labels'],
+                    "gt_ignore_flags": ['gt_ignore_flags', 'gt_ignore_flags'],
+                },
+                auto_remap=True,
+                share_random_params=True,
+                transforms=[
+                    dict(
+                        type='RandomCrop',
+                        crop_type='absolute_range',
+                        crop_size=(576, 640),
+                        allow_negative_crop=False,
+                    ),
+                    dict(type='RandomFlip', prob=0.5),
+                    dict(type='Resize', scale=(640, 512)),
+                ],
             ),
-            dict(type='RandomFlip', prob=0.5),
-            dict(type='Resize', scale=(640, 512)),
-        ],
+        ]
     ),
+    # dict(type='Normalize', mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True),
     dict(type="CustomPackDetInputs"),
 ]
 
 train_dataloader = dict(
-    batch_size=3,
+    batch_size=1,
     num_workers=16,
     prefetch_factor=4,
     sampler=dict(type="DefaultSampler", shuffle=True),
@@ -459,7 +418,7 @@ train_dataloader = dict(
         type=dataset_type,
         data_root=data_root,
         serialize_data=False,
-        ann_file="annotations/train.json",
+        ann_file="annotations/fold_0_train.json",
         data_prefix=dict(img_path="train/rgb", tir_path="train/tir"),
         # filter_cfg=dict(filter_empty_gt=False, min_size=32),
         pipeline=train_pipeline,
@@ -505,47 +464,47 @@ val_dataloader = dict(
         type=dataset_type,
         serialize_data=False,
         data_root=data_root,
-        ann_file="annotations/val.json",
-        data_prefix=dict(img_path="val/rgb", tir_path="val/tir"),
+        ann_file="annotations/fold_0_val.json",
+        data_prefix=dict(img_path="train/rgb", tir_path="train/tir"),
         # filter_cfg=dict(filter_empty_gt=False, min_size=32),
         pipeline=val_pipeline,
     ),
 )
 val_evaluator = dict(
     type="CocoMetric",
-    ann_file=f"{data_root}/annotations/val.json",
+    ann_file=f"{data_root}/annotations/fold_0_val.json",
     metric="bbox",
     format_only=False,
     backend_args=backend_args,
 )
 
-# test_dataloader = val_dataloader
-# test_evaluator = val_evaluator
+test_dataloader = val_dataloader
+test_evaluator = val_evaluator
 
-test_dataloader = dict(
-    batch_size=1,
-    num_workers=16,
-    persistent_workers=True,
-    drop_last=False,
-    sampler=dict(type="DefaultSampler", shuffle=False),
-    dataset=dict(
-        type=dataset_type,
-        serialize_data=False,
-        data_root=data_root,
-        ann_file="annotations/test.json",
-        data_prefix=dict(img_path="test/rgb", tir_path="test/tir"),
-        # filter_cfg=dict(filter_empty_gt=False, min_size=32),
-        pipeline=val_pipeline,
-    ),
-)
+# test_dataloader = dict(
+#     batch_size=1,
+#     num_workers=16,
+#     persistent_workers=True,
+#     drop_last=False,
+#     sampler=dict(type="DefaultSampler", shuffle=False),
+#     dataset=dict(
+#         type=dataset_type,
+#         serialize_data=False,
+#         data_root=data_root,
+#         ann_file="annotations/test.json",
+#         data_prefix=dict(img_path="test/rgb", tir_path="test/tir"),
+#         # filter_cfg=dict(filter_empty_gt=False, min_size=32),
+#         pipeline=val_pipeline,
+#     ),
+# )
 
-test_evaluator = dict(
-    type="CocoMetric",
-    ann_file=f"{data_root}/annotations/test.json",
-    metric="bbox",
-    format_only=False,
-    backend_args=backend_args,
-)
+# test_evaluator = dict(
+#     type="CocoMetric",
+#     ann_file=f"{data_root}/annotations/test.json",
+#     metric="bbox",
+#     format_only=False,
+#     backend_args=backend_args,
+# )
 
 optim_wrapper = dict(
     type="OptimWrapper",

@@ -124,28 +124,24 @@ class FuseMSDeformAttention(MultiScaleDeformableAttention):
         """
         # repeat: query / [identity] / [query_pos] / key_padding_mask / reference_points
         # stack: value 1 & 2
-        if kwargs.get('value2') is not None:
-            #### INCORRECT:
-            # nq, bs, _ = query.shape
-            # query = torch.cat([query, query], dim=1)
-            # if identity is not None:
-            #     identity = torch.cat([identity, identity], dim=1)
-            # if query_pos is not None:
-            #     query_pos = torch.cat([query_pos, query_pos], dim=1)
-            # key_padding_mask = torch.cat([key_padding_mask, key_padding_mask], dim=0)
-            # reference_points = torch.cat([reference_points, reference_points], dim=0)
-            # value = torch.cat([value, kwargs['value2']], dim=1)
 
-            # hs = super().forward(query, _, value, identity, query_pos, key_padding_mask, reference_points, spatial_shapes, level_start_index, **kwargs)
-            # hs = hs.reshape(2, bs, nq, -1).permute(1, 0, 2, 3)  # => [b, 2, q, c]
-            # # hs = self.agg(hs).squeeze(1).permute(1, 0, 2)       # => [b, 1, q, c] => [b, q, c] => [q, b, c]
-            # hs = ((hs[:, 0] + hs[:, 1]) / 2).permute(1, 0, 2)
+        #### INCORRECT:
+        # nq, bs, _ = query.shape
+        # query = torch.cat([query, query], dim=1)
+        # if identity is not None:
+        #     identity = torch.cat([identity, identity], dim=1)
+        # if query_pos is not None:
+        #     query_pos = torch.cat([query_pos, query_pos], dim=1)
+        # key_padding_mask = torch.cat([key_padding_mask, key_padding_mask], dim=0)
+        # reference_points = torch.cat([reference_points, reference_points], dim=0)
+        # value = torch.cat([value, kwargs['value2']], dim=1)
 
-            #### CORRECT:
-            hs0 = super().forward(query, _, value, identity, query_pos, key_padding_mask, reference_points, spatial_shapes, level_start_index, **kwargs)
-            hs1 = super().forward(query, _, kwargs['value2'], identity, query_pos, key_padding_mask, reference_points, spatial_shapes, level_start_index, **kwargs)
-            return (hs0 + hs1) / 2
-        else:
-            hs = super().forward(query, _, value, identity, query_pos, reference_points, spatial_shapes, level_start_index, **kwargs)
+        # hs = super().forward(query, _, value, identity, query_pos, key_padding_mask, reference_points, spatial_shapes, level_start_index, **kwargs)
+        # hs = hs.reshape(2, bs, nq, -1).permute(1, 0, 2, 3)  # => [b, 2, q, c]
+        # # hs = self.agg(hs).squeeze(1).permute(1, 0, 2)       # => [b, 1, q, c] => [b, q, c] => [q, b, c]
+        # hs = ((hs[:, 0] + hs[:, 1]) / 2).permute(1, 0, 2)
 
-        return hs
+        #### CORRECT:
+        hs0 = super().forward(query, _, value, identity, query_pos, key_padding_mask, reference_points, spatial_shapes, level_start_index, **kwargs)
+        hs1 = super().forward(query, _, kwargs['value2'], identity, query_pos, key_padding_mask, reference_points, spatial_shapes, level_start_index, **kwargs)
+        return (hs0 + hs1) / 2
