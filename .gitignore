@@ -8,3 +8,5 @@ eda.ipynb
 *.csv
 *.pkl
 *.json
+wandb/
+*.jpg

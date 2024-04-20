@@ -25,16 +25,17 @@ env_cfg = dict(
 
 vis_backends = [
     dict(type="LocalVisBackend"),
-    # dict(
-    #     type="WandbVisBackend",
-    #     init_kwargs=dict(
-    #         project="gaiic2014",
-    #         save_code=True,
-    #         settings={"code_dir": "projects"}
-    #     ),
-    #     notes="",
-    #     tags=[]
-    # )
+    dict(
+        type="WandbVisBackend",
+        save_dir='wandb',
+        init_kwargs=dict(
+            project="gaiic2014",
+            save_code=True,
+            settings={"code_dir": "projects"},
+            notes="",
+            tags=[]
+        ),
+    )
 ]
 visualizer = dict(
     type="DetLocalVisualizer", vis_backends=vis_backends, name="visualizer"
@@ -137,8 +138,8 @@ model = dict(
                 transformerlayers=dict(
                     type="BaseTransformerLayer",
                     attn_cfgs=dict(
-                        # type="FuseMSDeformAttention",
-                        type="MultiScaleDeformableAttention",
+                        type="FuseMSDeformAttention",
+                        # type="MultiScaleDeformableAttention",
                         embed_dims=256,
                         num_levels=5,
                         dropout=0.0,

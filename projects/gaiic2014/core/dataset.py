@@ -282,8 +282,8 @@ class GAIIC2014DatasetV2(CocoDataset):
         ann_info = raw_data_info['raw_ann_info']
 
         data_info = {}
-        data_info['img_path'] = Path(self.data_prefix['tir_path']) / img_info['file_name']
-        data_info['tir_path'] = Path(self.data_prefix['img_path']) / img_info['file_name']
+        data_info['img_path'] = Path(self.data_prefix['img_path']) / img_info['file_name']
+        data_info['tir_path'] = Path(self.data_prefix['tir_path']) / img_info['file_name']
         data_info['img_id'] = img_info['img_id']
         data_info['seg_map_path'] = None
         data_info['height'] = img_info['height']

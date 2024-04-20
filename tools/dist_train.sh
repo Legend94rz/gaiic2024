@@ -24,4 +24,4 @@ export PYTHONPATH=.
 nnode=2
 cfg="projects/gaiic2014/configs/codetr_all_in_one.py"
 time=`date +"%Y%m%d_%H%M%S"`
-torchrun --nproc-per-node=${nnode} tools/train.py ${cfg} --launcher pytorch --work_dir ./work_dirs/`basename ${cfg} .py`/${time}
+torchrun --nproc-per-node=${nnode} tools/train.py ${cfg} --launcher pytorch --work-dir ./work_dirs/`basename ${cfg} .py`/_${time}
