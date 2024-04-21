@@ -8,8 +8,8 @@ import random
 
 import mmcv
 from mmcv.transforms import BaseTransform, LoadImageFromFile, RandomFlip, RandomResize, TransformBroadcaster, Normalize, Pad, LoadAnnotations, Normalize
+from mmcv.transforms.utils import cache_random_params, cache_randomness
 from mmdet.datasets.transforms.transforms import Resize
-from mmcv.transforms.utils import cache_random_params
 from mmengine.hooks import LoggerHook, CheckpointHook
 
 from mmdet.datasets import CocoDataset, MultiImageMixDataset, BaseDetDataset
@@ -260,6 +260,53 @@ class BugFreeTransformBroadcaster(TransformBroadcaster):
 
         results.update(outputs)
         return results
+
+
+@TRANSFORMS.register_module()
+class RandomShiftOnlyImg(BaseTransform):
+    def __init__(self, key='img', prob: float = 0.5, max_shift_px: int = 32) -> None:
+        assert 0 <= prob <= 1
+        assert max_shift_px >= 0
+        self.key = key
+        self.prob = prob
+        self.max_shift_px = max_shift_px
+
+    @cache_randomness
+    def _random_args(self) -> float:
+        random_shift_x = random.randint(-self.max_shift_px, self.max_shift_px)
+        random_shift_y = random.randint(-self.max_shift_px, self.max_shift_px)
+        return random.uniform(0, 1), random_shift_x, random_shift_y
+
+    def transform(self, results: dict) -> dict:
+        """Transform function to random shift images, bounding boxes.
+
+        Args:
+            results (dict): Result dict from loading pipeline.
+
+        Returns:
+            dict: Shift results.
+        """
+        p, random_shift_x, random_shift_y = self._random_args()
+        if p < self.prob:
+            new_x = max(0, random_shift_x)
+            ori_x = max(0, -random_shift_x)
+            new_y = max(0, random_shift_y)
+            ori_y = max(0, -random_shift_y)
+            # shift img
+            img = results[self.key]
+            new_img = np.zeros_like(img)
+            img_h, img_w = img.shape[:2]
+            new_h = img_h - np.abs(random_shift_y)
+            new_w = img_w - np.abs(random_shift_x)
+            new_img[new_y:new_y + new_h, new_x:new_x + new_w] = img[ori_y:ori_y + new_h, ori_x:ori_x + new_w]
+            results[self.key] = new_img
+        return results
+
+    def __repr__(self):
+        repr_str = self.__class__.__name__
+        repr_str += f'(prob={self.prob}, '
+        repr_str += f'max_shift_px={self.max_shift_px}, '
+        return repr_str
 
 
 @DATASETS.register_module()

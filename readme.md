@@ -1,5 +1,6 @@
-[] 线上线下差距较大的问题(是否与score阈值有关? maxDet?): 不要加阈值过滤。仍然没有完全解决：需要确认下是否是val与test分布差距较大，看下预测结果。
-[] 数据可视化；预测结果 badcase
+[x] 线上线下差距较大的问题(是否与score阈值有关? maxDet?): 不要加阈值过滤。仍然没有完全解决：需要确认下是否是val与test分布差距较大，看下预测结果。
+    大概率是因为测试集都没对齐。另外有一些极小的目标，暂时无解。
+[x] 数据可视化；预测结果 badcase
 [x] 排查训练速度问题
 [x] test json
 [x] 检查下各种resize/crop参数的正确性，w/h的顺序
@@ -43,10 +44,20 @@ conf-thres=0    单模态: 1 epoch             线上 0.38238603322554376
 conf-thres=0    单模态: 10 epoch            线上 0.38908813383119695    (0.624)
 conf-thres=0    多模态: 1 epoch             线上 0.39385607852916976    (0.514)
 conf-thres=0    多模态: 10 epoch            线上 0.4477186164130829     (0.649)
-conf-thres=0    多模态: 16 epoch            线上 ?
+conf-thres=0    多模态: 16 epoch            线上 0.43890585216012845    (0.652): 多训练可能并不会有线上收益! 还需要测试
+
+conf-thres=0    多模态+lrsch+shift+autocontrast: 9 epoch                线上 0.4467967757882764 (0.638)
+conf-thres=0    多模态+lrsch+shift+autocontrast: 10 epoch               线上 0.4480350955482753 (0.638)
+
+conf-thres=0    多模态+lrsch+shift+autocontrast: 16 epoch               线上  ?
+                多模态+lrsch+shift+autocontrast 8/9/10 swa              线上?
+
+                多模态+lrsch+shift+hisEqulColor2+new arch: 1epoch       线上?
+                多模态+lrsch+shift+hisEqulColor2+new arch: 10epoch       线上?
+
 conf-thres=0    mosaic + 多模态: 1epoch     线上 ?
 conf-thres=0    mosaic + 多模态: ~5epoch    线上 
 
-conf-thres=0    多模态: x epoch 增广rgb            线上 ?
+conf-thres=0    多模态: x epoch 增广rgb     线上 ?
 
 

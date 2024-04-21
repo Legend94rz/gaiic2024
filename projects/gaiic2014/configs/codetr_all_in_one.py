@@ -448,6 +448,8 @@ train_pipeline = [
             dict(type='Resize', scale=(640, 512)),
         ],
     ),
+    dict(type='RandomShiftOnlyImg', max_shift_px=10, prob=0.5),
+    dict(type='AutoContrast'),
     dict(type="CustomPackDetInputs"),
 ]
 
@@ -490,6 +492,10 @@ val_pipeline = [
     # dict(type='Resize', scale=(640, 512)),
     #dict(type='Resize', scale_factor=1.0),
     # dict(type='Normalize', mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True),
+
+    dict(type='AutoContrast'),
+    # dict(type='RandomShiftOnlyImg', max_shift_px=10, prob=0.5),
+
     dict(
         type="CustomPackDetInputs",
         meta_keys=('img_id', 'img_path', 'ori_shape', 'img_shape', 'scale_factor')  # as is. keep `scale_factor`
@@ -548,9 +554,10 @@ test_evaluator = dict(
     backend_args=backend_args,
 )
 
+base_lr = 2e-5
 optim_wrapper = dict(
     type="OptimWrapper",
-    optimizer=dict(type="AdamW", lr=2e-5, weight_decay=0.0001),
+    optimizer=dict(type="AdamW", lr=base_lr, weight_decay=0.0001),
     clip_grad=dict(max_norm=0.1, norm_type=2),
     paramwise_cfg=dict(custom_keys={
         "query_head.cls_branches": dict(lr_mult=10),
@@ -567,13 +574,23 @@ test_cfg = dict(type="TestLoop")
 
 param_scheduler = [
     dict(
-        type="MultiStepLR",
+        type='LinearLR',
+        start_factor=1./4,
+        by_epoch=False,
         begin=0,
+        end=1000,
+        # verbose=True
+    ),
+    dict(
+        type='CosineAnnealingLR',
+        eta_min=base_lr * 0.02,
+        begin=1,
         end=max_epochs,
+        T_max=max_epochs,
         by_epoch=True,
-        milestones=[8],
-        gamma=0.1,
-    )
+        verbose=True,
+        # convert_to_iter_based=True,
+    ),
 ]
 
 log_level = "INFO"
@@ -582,4 +599,4 @@ log_processor = dict(by_epoch=True)
 # NOTE: `auto_scale_lr` is for automatically scaling LR,
 # USER SHOULD NOT CHANGE ITS VALUES.
 # base_batch_size = (8 GPUs) x (2 samples per GPU)
-auto_scale_lr = dict(base_batch_size=16)
+auto_scale_lr = dict(base_batch_size=6)
