@@ -1,5 +1,6 @@
 [x] 线上线下差距较大的问题(是否与score阈值有关? maxDet?): 不要加阈值过滤。仍然没有完全解决：需要确认下是否是val与test分布差距较大，看下预测结果。
     大概率是因为测试集都没对齐。另外有一些极小的目标，暂时无解。
+    重点解决【有一些明明rgb上很清晰，但是就是漏检】: 随机用其他无目标区域填充tir
 [x] 数据可视化；预测结果 badcase
 [x] 排查训练速度问题
 [x] test json
@@ -13,10 +14,15 @@
 [] giouloss -> ciou loss / siou loss
 [] lr warmup & annealing
 [] swa
+[] 测试下 test_cfg 的nms参数对测试集上大量目标的图片是否不够。
 
 **WARN**
 由于B阶段只有一天时间，两次提交机会。每次提交之后一定注意要保存最优的模型权重，一旦丢失，当天是来不及重新训练的。
 在比赛过程中注意保存最优的两个权重。同时A阶段结束之前3天(6月7号)再次检查是否缺失。
+
+**WARN**
+2024年5月17日8:00之前发邮件到大赛邮箱data@tsinghua.edu.cn
+使用的模型权重（下载链接、md5）及数据集
 
 
 速度问题:
@@ -49,7 +55,7 @@ conf-thres=0    多模态: 16 epoch            线上 0.43890585216012845    (0.
 conf-thres=0    多模态+lrsch+shift+autocontrast: 9 epoch                线上 0.4467967757882764 (0.638)
 conf-thres=0    多模态+lrsch+shift+autocontrast: 10 epoch               线上 0.4480350955482753 (0.638)
 
-conf-thres=0    多模态+lrsch+shift+autocontrast: 16 epoch               线上  ?
+conf-thres=0    多模态+lrsch+shift+autocontrast: 16 epoch               线上 0.4361348096499168 (0.650)  这种融合方式的最优epoch在[10, 15]之间
                 多模态+lrsch+shift+autocontrast 8/9/10 swa              线上?
 
                 多模态+lrsch+shift+hisEqulColor2+new arch: 1epoch       线上?

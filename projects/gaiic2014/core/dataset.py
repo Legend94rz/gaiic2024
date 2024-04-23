@@ -5,6 +5,7 @@ from pathlib import Path
 import numpy as np
 import torch
 import random
+import cv2
 
 import mmcv
 from mmcv.transforms import BaseTransform, LoadImageFromFile, RandomFlip, RandomResize, TransformBroadcaster, Normalize, Pad, LoadAnnotations, Normalize
@@ -307,6 +308,23 @@ class RandomShiftOnlyImg(BaseTransform):
         repr_str += f'(prob={self.prob}, '
         repr_str += f'max_shift_px={self.max_shift_px}, '
         return repr_str
+
+
+@TRANSFORMS.register_module()
+class AdaptiveHistEQU(BaseTransform):
+    def __init__(self, key='img'):
+        self.key = key
+
+    def transform(self, results):
+        img = results[self.key]
+        ycrcb = cv2.cvtColor(img, cv2.COLOR_BGR2YCR_CB)
+        channels = cv2.split(ycrcb)
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        clahe.apply(channels[0], channels[0])
+
+        ycrcb = cv2.merge(channels)
+        results[self.key] = cv2.cvtColor(ycrcb, cv2.COLOR_YCR_CB2BGR)
+        return results
 
 
 @DATASETS.register_module()
