@@ -8,7 +8,7 @@ import random
 import cv2
 
 import mmcv
-from mmcv.transforms import BaseTransform, LoadImageFromFile, RandomFlip, RandomResize, TransformBroadcaster, Normalize, Pad, LoadAnnotations, Normalize
+from mmcv.transforms import BaseTransform, LoadImageFromFile, RandomFlip, RandomResize, TransformBroadcaster, Normalize, Pad, LoadAnnotations, Normalize, RandomChoice
 from mmcv.transforms.utils import cache_random_params, cache_randomness
 from mmdet.datasets.transforms.transforms import Resize
 from mmengine.hooks import LoggerHook, CheckpointHook
@@ -221,6 +221,106 @@ class MultiInputMosaic(BaseTransform):
         results['gt_bboxes'] = mosaic_bboxes
         results['gt_bboxes_labels'] = mosaic_bboxes_labels
         results['gt_ignore_flags'] = mosaic_ignore_flags
+        return results
+
+
+@TRANSFORMS.register_module()
+class MultiInputCopyPaste(BaseTransform):
+    def __init__(self, keys=['img', 'tir'], prob=0.6, patch_size=(256, 256), intersect_thres=0.5, scales=(0.3, 1.5), individual_pipeline=[]) -> None:
+        # patch_size: (w, h)
+        super().__init__()
+        self.keys = keys
+        self.prob = prob
+        self.patch_size = patch_size
+        self.intersect_thres = intersect_thres
+        self.scales = scales
+        self.individual_pipeline = Compose(individual_pipeline)
+
+    def get_params(self, n, shape):
+        p = random.random()
+        idx = np.random.choice(n)
+        src_x = np.random.randint(0, shape[0] - self.patch_size[0])
+        src_y = np.random.randint(0, shape[1] - self.patch_size[1])
+        scale = np.random.random() * (self.scales[1] - self.scales[0]) + self.scales[0]
+        size = (int(self.patch_size[0] * scale), int(self.patch_size[1]*scale))
+        des_x = np.random.randint(0, shape[0] - size[0])
+        des_y = np.random.randint(0, shape[1] - size[1])
+        return p, idx, (src_x, src_y), scale, size, (des_x, des_y)
+    
+    @classmethod
+    def copy_paste(cls, src, des, keys, patch_size, thres, *args):
+        (x, y), scale, (dw, dh), (dx, dy) = args
+        
+        for key in keys:
+            patch = cv2.resize(src[key][y: y+patch_size[1], x: x+patch_size[0]], (dw, dh))
+            des[key][dy: dy+dh, dx: dx+dw] = patch
+
+        des_gt_bboxes = des['gt_bboxes'].numpy()
+        # compute intersect
+        iarea = np.maximum(0, np.minimum(des_gt_bboxes[:, 2], dx+dw) - np.maximum(des_gt_bboxes[:, 0], dx)) * np.maximum(0, np.minimum(des_gt_bboxes[:, 3], dy+dh) - np.maximum(des_gt_bboxes[:, 1], dy))
+        area = (des_gt_bboxes[:, 2] - des_gt_bboxes[:, 0]) * (des_gt_bboxes[:, 3] - des_gt_bboxes[:, 1])
+        p1 = ((iarea / area) <= thres)
+
+        src_gt_bboxes = src['gt_bboxes'].numpy()
+        iarea = np.maximum(0, np.minimum(src_gt_bboxes[:, 2], x+patch_size[0]) - np.maximum(src_gt_bboxes[:, 0], x)) * np.maximum(0, np.minimum(src_gt_bboxes[:, 3], y+patch_size[0]) - np.maximum(src_gt_bboxes[:, 1], y))
+        area = (src_gt_bboxes[:, 2] - src_gt_bboxes[:, 0]) * (src_gt_bboxes[:, 3] - src_gt_bboxes[:, 1])
+        p2 = ((iarea / area) > thres)
+        temp = src['gt_bboxes'][p2]
+        temp.rescale_([scale, scale])
+        temp.translate_([dx - scale*x, dy - scale*y])
+
+        des['gt_bboxes'] = temp.cat([des['gt_bboxes'][p1], temp], 0)
+        des['gt_bboxes_labels'] = np.concatenate([ des['gt_bboxes_labels'][p1], src['gt_bboxes_labels'][p2] ], 0)
+        des['gt_ignore_flags'] = np.concatenate([ des['gt_ignore_flags'][p1], src['gt_ignore_flags'][p2] ], 0)
+        return des
+
+    def transform(self, results: Dict) -> Dict | Tuple[List] | None:
+        """
+            在原tir上随机取一块区域;
+            随机缩放;
+            在目标图上随机取一块相同大小的区域。复制像素值。
+            目标图中删除覆盖面积大于thres的框。
+            复制原图里，与区域的iou交集大于thres的box到目标图。
+        """
+        dataset  :BaseDataset = results.pop('dataset')
+        results = self.individual_pipeline(results)
+        h, w = results['img'].shape[:2]
+        p, idx, *args = self.get_params(len(dataset), (w, h))
+        if p >= self.prob:
+            return results
+        # print(p, idx, args)
+        item = self.individual_pipeline(dataset.get_data_info(idx))
+        results = self.copy_paste(item, results, self.keys, self.patch_size, self.intersect_thres, *args)
+        results['dataset'] = dataset
+        return results
+
+
+@TRANSFORMS.register_module()
+class RandomDropImgRegion(BaseTransform):
+    def __init__(self, key='tir', prob=0.5, smear_range=(128, 350)) -> None:
+        super().__init__()
+        self.key = key
+        self.prob = prob
+        self.smear_range = smear_range
+
+    def get_params(self, shape):
+        p = random.random()
+        size_x = int(np.random.random() * (self.smear_range[1] - self.smear_range[0]) + self.smear_range[0])
+        size_y = int(np.random.random() * (self.smear_range[1] - self.smear_range[0]) + self.smear_range[0])
+        x = np.random.randint(0, shape[0] - size_x)
+        y = np.random.randint(0, shape[1] - size_y)
+        return p, (x, y), (size_x, size_y)
+
+    def transform(self, results: Dict) -> Dict | Tuple[List] | None:
+        """
+            随机取一块区域, 不需要保证比例
+            0填充tir图像；
+        """
+        img = results[self.key].copy()
+        p, loc, size = self.get_params(img.shape[1::-1])
+        if p < self.prob:
+            img[loc[1]: loc[1]+size[1], loc[0]: loc[0]+size[0]] = 0
+            results[self.key] = img
         return results
 
 

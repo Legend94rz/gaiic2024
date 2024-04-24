@@ -142,6 +142,6 @@ class FuseMSDeformAttention(MultiScaleDeformableAttention):
         # hs = ((hs[:, 0] + hs[:, 1]) / 2).permute(1, 0, 2)
 
         #### CORRECT:
-        hs0 = super().forward(query, _, value, identity, query_pos, key_padding_mask, reference_points, spatial_shapes, level_start_index, **kwargs)
-        hs1 = super().forward(query, _, kwargs['value2'], identity, query_pos, key_padding_mask, reference_points, spatial_shapes, level_start_index, **kwargs)
+        hs0 = super().forward(kwargs['value2'], _, query, identity, query_pos, key_padding_mask, reference_points, spatial_shapes, level_start_index, **kwargs)
+        hs1 = super().forward(kwargs['value2'], _, kwargs['value2'], identity, query_pos, key_padding_mask, reference_points, spatial_shapes, level_start_index, **kwargs)
         return (hs0 + hs1) / 2

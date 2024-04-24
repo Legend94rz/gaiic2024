@@ -423,33 +423,40 @@ model = dict(
 # ]
 
 train_pipeline = [
-    dict(type="LoadImageFromFile"),
-    dict(type="LoadTirFromPath"),
-    dict(type="LoadAnnotations", with_bbox=True),
     dict(
-        type="BugFreeTransformBroadcaster",
-        mapping={
-            "img": ["tir", "img"],
-            "img_shape": ["img_shape", "img_shape"],
-            "gt_bboxes": ['gt_bboxes', 'gt_bboxes'],
-            "gt_bboxes_labels": ['gt_bboxes_labels', 'gt_bboxes_labels'],
-            "gt_ignore_flags": ['gt_ignore_flags', 'gt_ignore_flags'],
-        },
-        auto_remap=True,
-        share_random_params=True,
-        transforms=[
+        type='MultiInputCopyPaste', prob=0.6, individual_pipeline=[
+            dict(type="LoadImageFromFile"),
+            dict(type="LoadTirFromPath"),
+            dict(type="LoadAnnotations", with_bbox=True),
+            dict(type='RandomChoice', transforms=[
+                [dict(type='RandomShiftOnlyImg', max_shift_px=10, prob=0.5)],
+                [dict(type='RandomDropImgRegion', key='tir', prob=0.5)]
+            ]),            
+            dict(type='AdaptiveHistEQU'),
             dict(
-                type='RandomCrop',
-                crop_type='absolute_range',
-                crop_size=(576, 640),
-                allow_negative_crop=False,
+                type="BugFreeTransformBroadcaster",
+                mapping={
+                    "img": ["tir", "img"],
+                    "img_shape": ["img_shape", "img_shape"],
+                    "gt_bboxes": ['gt_bboxes', 'gt_bboxes'],
+                    "gt_bboxes_labels": ['gt_bboxes_labels', 'gt_bboxes_labels'],
+                    "gt_ignore_flags": ['gt_ignore_flags', 'gt_ignore_flags'],
+                },
+                auto_remap=True,
+                share_random_params=True,
+                transforms=[
+                    dict(
+                        type='RandomCrop',
+                        crop_type='absolute_range',
+                        crop_size=(576, 640),
+                        allow_negative_crop=False,
+                    ),
+                    dict(type='RandomFlip', prob=0.5),
+                    dict(type='Resize', scale=(640, 512)),
+                ],
             ),
-            dict(type='RandomFlip', prob=0.5),
-            dict(type='Resize', scale=(640, 512)),
-        ],
+        ]
     ),
-    dict(type='RandomShiftOnlyImg', max_shift_px=10, prob=0.5),
-    dict(type='AutoContrast'),
     dict(type="CustomPackDetInputs"),
 ]
 
@@ -493,7 +500,7 @@ val_pipeline = [
     #dict(type='Resize', scale_factor=1.0),
     # dict(type='Normalize', mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True),
 
-    dict(type='AutoContrast'),
+    dict(type='AdaptiveHistEQU'),
     # dict(type='RandomShiftOnlyImg', max_shift_px=10, prob=0.5),
 
     dict(
