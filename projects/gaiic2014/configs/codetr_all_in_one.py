@@ -189,7 +189,7 @@ model = dict(
             type="QualityFocalLoss", use_sigmoid=True, beta=2.0, loss_weight=1.0
         ),
         loss_bbox=dict(type="L1Loss", loss_weight=5.0),
-        loss_iou=dict(type="GIoULoss", loss_weight=2.0),
+        loss_iou=dict(type="GIoULoss", loss_weight=2.0),    # TODO -> DIoU?
     ),
     rpn_head=dict(
         type="RPNHead",
@@ -211,8 +211,8 @@ model = dict(
             type="CrossEntropyLoss",
             use_sigmoid=True,
             loss_weight=1.0 * num_dec_layer * loss_lambda,
-        ),
-        loss_bbox=dict(type="L1Loss", loss_weight=1.0 * num_dec_layer * loss_lambda),
+        ),  # TODO
+        loss_bbox=dict(type="L1Loss", loss_weight=1.0 * num_dec_layer * loss_lambda),   # TODO
     ),
     roi_head=[
         dict(
@@ -241,10 +241,10 @@ model = dict(
                     type="CrossEntropyLoss",
                     use_sigmoid=False,
                     loss_weight=1.0 * num_dec_layer * loss_lambda,
-                ),
+                ),  # TODO -> Focal?
                 loss_bbox=dict(
                     type="GIoULoss", loss_weight=10.0 * num_dec_layer * loss_lambda
-                ),
+                ),  # TODO -> DIoU?
             ),
         )
     ],
@@ -276,7 +276,7 @@ model = dict(
             ),
             loss_bbox=dict(
                 type="GIoULoss", loss_weight=2.0 * num_dec_layer * loss_lambda
-            ),
+            ),  # TODO -> DIoU?
             loss_centerness=dict(
                 type="CrossEntropyLoss",
                 use_sigmoid=True,

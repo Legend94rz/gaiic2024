@@ -55,6 +55,10 @@ conf-thres=0    多模态: 16 epoch            线上 0.43890585216012845    (0.
 conf-thres=0    多模态+lrsch+shift+autocontrast: 9 epoch                线上 0.4467967757882764 (0.638)
 conf-thres=0    多模态+lrsch+shift+autocontrast: 10 epoch               线上 0.4480350955482753 (0.638)
 
+conf-thres=0    多模态+lrsch+shift+adaptiveHistEQU+Copypaste+randomsmear: 10 epoch               线上 0.43570007604618116  (0.616) 【更复杂的增广可能没收益了】
+SWA / loss function / 怎么解决漏检过多的问题？
+
+
 conf-thres=0    多模态+lrsch+shift+autocontrast: 16 epoch               线上 0.4361348096499168 (0.650)  这种融合方式的最优epoch在[10, 15]之间
                 多模态+lrsch+shift+autocontrast 8/9/10 swa              线上?
 
