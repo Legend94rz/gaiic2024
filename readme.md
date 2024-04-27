@@ -9,12 +9,17 @@
     标注与提交都是min/wh
 [x] 验证单模态(tir/rgb)的分数 (as baseline)
 [] 验证mosaic对于CoDETR的有效性
-[] appearance augmentation || fuse augmentaion
+[x] appearance augmentation || fuse augmentaion
 [x] wandb。尽快确定改动是否有效
 [] giouloss -> ciou loss / siou loss
-[] lr warmup & annealing
-[] swa
+[x] lr warmup & annealing
+[x] swa
 [] 测试下 test_cfg 的nms参数对测试集上大量目标的图片是否不够。
+[] 检查改进的concat fuse deform attn的几个重要参数的正确性（不同模态的参数是否变化不同）
+[] 检查 multi-scale是否有助于解决漏检的问题（若有，则需要加TTA，并且调整multi-scale增广）
+[] 检查是否有类似 p_obj 的输出，调节权重
+
+
 
 **WARN**
 由于B阶段只有一天时间，两次提交机会。每次提交之后一定注意要保存最优的模型权重，一旦丢失，当天是来不及重新训练的。
@@ -56,10 +61,13 @@ conf-thres=0    多模态+lrsch+shift+autocontrast: 9 epoch                线�
 conf-thres=0    多模态+lrsch+shift+autocontrast: 10 epoch               线上 0.4480350955482753 (0.638)
 
 conf-thres=0    多模态+lrsch+shift+adaptiveHistEQU+Copypaste+randomsmear: 10 epoch               线上 0.43570007604618116  (0.616) 【更复杂的增广可能没收益了】
+conf-thres=0    多模态+lrsch+shift+adaptiveHistEQU+Copypaste+randomsmear: 16 epoch               线上 0.4282321671406016   (0.632)  【16个epoch 已经过拟合】
 SWA / loss function / 怎么解决漏检过多的问题？
 
-
 conf-thres=0    多模态+lrsch+shift+autocontrast: 16 epoch               线上 0.4361348096499168 (0.650)  这种融合方式的最优epoch在[10, 15]之间
+                多模态+lrsch+shift+AdaptiveHistEQU+swa+concat deform attn: 10epoch max14e  线上 0.45847593272744164 (0.649)    由于wandb曲线与之前版本区别不大，需要检查下attn层几个重要的参数是否有区别，提高是不是仅由于swa带来的？
+
+
                 多模态+lrsch+shift+autocontrast 8/9/10 swa              线上?
 
                 多模态+lrsch+shift+hisEqulColor2+new arch: 1epoch       线上?

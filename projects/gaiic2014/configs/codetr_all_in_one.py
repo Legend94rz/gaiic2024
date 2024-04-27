@@ -15,6 +15,7 @@ default_hooks = dict(
     checkpoint=dict(type="CheckpointHook", interval=1, by_epoch=True, max_keep_ckpts=3),
     sampler_seed=dict(type="DistSamplerSeedHook"),
     visualization=dict(type="DetVisualizationHook"),
+    ema=dict(type="MyEMAHook", ema_type="StochasticWeightAverage", begin_epoch=9)
 )
 
 env_cfg = dict(
@@ -49,7 +50,8 @@ num_classes = 5
 dataset_type = "GAIIC2014DatasetV2"
 data_root = "data/track1-A/"
 pretrained = "ckpt/swin_large_patch4_window12_384_22k.pth"
-load_from = "ckpt/co_dino_5scale_swin_large_16e_o365tococo-614254c9.pth"
+load_from = "ckpt/co_dino_5scale_swin_large_16e_o365tococo-614254c9_patched.pth"
+# load_from = "ckpt/co_dino_5scale_swin_large_16e_o365tococo-614254c9.pth"
 
 # image_size = (1024, 1024)
 # batch_augments = [
@@ -129,7 +131,8 @@ model = dict(
             num_co_heads=2,  # ATSS Aux Head + Faster RCNN Aux Head
             num_feature_levels=5,
             encoder=dict(
-                type="DetrTransformerEncoder",
+                # type="DetrTransformerEncoder",
+                type="DualModalEncoder",
                 num_layers=6,
                 # number of layers that use checkpoint.
                 # The maximum value for the setting is num_layers.
@@ -138,7 +141,8 @@ model = dict(
                 transformerlayers=dict(
                     type="BaseTransformerLayer",
                     attn_cfgs=dict(
-                        type="FuseMSDeformAttention",
+                        type="DualModalDeformableAttention",
+                        # type="FuseMSDeformAttention",
                         # type="MultiScaleDeformableAttention",
                         embed_dims=256,
                         num_levels=5,
@@ -211,8 +215,8 @@ model = dict(
             type="CrossEntropyLoss",
             use_sigmoid=True,
             loss_weight=1.0 * num_dec_layer * loss_lambda,
-        ),  # TODO
-        loss_bbox=dict(type="L1Loss", loss_weight=1.0 * num_dec_layer * loss_lambda),   # TODO
+        ),  # 影响 loss_rpn_cls 一项
+        loss_bbox=dict(type="L1Loss", loss_weight=1.0 * num_dec_layer * loss_lambda),   # 影响 loss_rpn_bbox 一项 [可改成GIOU等]
     ),
     roi_head=[
         dict(
@@ -423,40 +427,33 @@ model = dict(
 # ]
 
 train_pipeline = [
+    dict(type="LoadImageFromFile"),
+    dict(type="LoadTirFromPath"),
+    dict(type="LoadAnnotations", with_bbox=True),
     dict(
-        type='MultiInputCopyPaste', prob=0.6, individual_pipeline=[
-            dict(type="LoadImageFromFile"),
-            dict(type="LoadTirFromPath"),
-            dict(type="LoadAnnotations", with_bbox=True),
-            dict(type='RandomChoice', transforms=[
-                [dict(type='RandomShiftOnlyImg', max_shift_px=10, prob=0.5)],
-                [dict(type='RandomDropImgRegion', key='tir', prob=0.5)]
-            ]),            
-            dict(type='AdaptiveHistEQU'),
+        type="BugFreeTransformBroadcaster",
+        mapping={
+            "img": ["tir", "img"],
+            "img_shape": ["img_shape", "img_shape"],
+            "gt_bboxes": ['gt_bboxes', 'gt_bboxes'],
+            "gt_bboxes_labels": ['gt_bboxes_labels', 'gt_bboxes_labels'],
+            "gt_ignore_flags": ['gt_ignore_flags', 'gt_ignore_flags'],
+        },
+        auto_remap=True,
+        share_random_params=True,
+        transforms=[
             dict(
-                type="BugFreeTransformBroadcaster",
-                mapping={
-                    "img": ["tir", "img"],
-                    "img_shape": ["img_shape", "img_shape"],
-                    "gt_bboxes": ['gt_bboxes', 'gt_bboxes'],
-                    "gt_bboxes_labels": ['gt_bboxes_labels', 'gt_bboxes_labels'],
-                    "gt_ignore_flags": ['gt_ignore_flags', 'gt_ignore_flags'],
-                },
-                auto_remap=True,
-                share_random_params=True,
-                transforms=[
-                    dict(
-                        type='RandomCrop',
-                        crop_type='absolute_range',
-                        crop_size=(576, 640),
-                        allow_negative_crop=False,
-                    ),
-                    dict(type='RandomFlip', prob=0.5),
-                    dict(type='Resize', scale=(640, 512)),
-                ],
+                type='RandomCrop',
+                crop_type='absolute_range',
+                crop_size=(576, 640),
+                allow_negative_crop=False,
             ),
-        ]
+            dict(type='RandomFlip', prob=0.5),
+            dict(type='Resize', scale=(640, 512)),
+        ],
     ),
+    dict(type='RandomShiftOnlyImg', max_shift_px=10, prob=0.5),
+    dict(type='AdaptiveHistEQU'),
     dict(type="CustomPackDetInputs"),
 ]
 
@@ -574,7 +571,7 @@ optim_wrapper = dict(
     }),
 )
 
-max_epochs = 16
+max_epochs = 14
 train_cfg = dict(type="EpochBasedTrainLoop", max_epochs=max_epochs, val_interval=1)
 val_cfg = dict(type="ValLoop")
 test_cfg = dict(type="TestLoop")
@@ -592,8 +589,8 @@ param_scheduler = [
         type='CosineAnnealingLR',
         eta_min=base_lr * 0.02,
         begin=1,
-        end=max_epochs,
-        T_max=max_epochs,
+        end=16,
+        T_max=16,
         by_epoch=True,
         verbose=True,
         # convert_to_iter_based=True,
