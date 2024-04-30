@@ -425,11 +425,13 @@ model = dict(
 #     # dict(type='Normalize', mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True),
 #     dict(type="CustomPackDetInputs"),
 # ]
-
+image_size = (640, 512)
 train_pipeline = [
     dict(type="LoadImageFromFile"),
     dict(type="LoadTirFromPath"),
     dict(type="LoadAnnotations", with_bbox=True),
+    dict(type='AdaptiveHistEQU'),
+    dict(type='RandomShiftOnlyImg', max_shift_px=10, prob=0.5),
     dict(
         type="BugFreeTransformBroadcaster",
         mapping={
@@ -443,17 +445,23 @@ train_pipeline = [
         share_random_params=True,
         transforms=[
             dict(
-                type='RandomCrop',
-                crop_type='absolute_range',
-                crop_size=(576, 640),
-                allow_negative_crop=False,
+                type='RandomResize',
+                scale=image_size,
+                ratio_range=(0.75, 1.5),
+                keep_ratio=True
             ),
+            dict(
+                type='RandomCrop',
+                crop_type='absolute',
+                crop_size=image_size,
+                allow_negative_crop=False,
+            ), # NOTE: 目前它不会过滤掉因crop导致bbox可见区域过小的情况，对线上分数影响未知。
             dict(type='RandomFlip', prob=0.5),
-            dict(type='Resize', scale=(640, 512)),
+            dict(type='Pad', size=image_size, pad_val=dict(img=(114, 114, 114))),
+            # dict(type='Resize', scale=(640, 512)),
         ],
     ),
-    dict(type='RandomShiftOnlyImg', max_shift_px=10, prob=0.5),
-    dict(type='AdaptiveHistEQU'),
+
     dict(type="CustomPackDetInputs"),
 ]
 
@@ -477,6 +485,8 @@ val_pipeline = [
     dict(type="LoadImageFromFile"),
     dict(type="LoadTirFromPath"),
     dict(type="LoadAnnotations", with_bbox=True),
+    # dict(type='RandomShiftOnlyImg', max_shift_px=10, prob=0.5),
+    dict(type='AdaptiveHistEQU'),
     dict(
         type="BugFreeTransformBroadcaster",
         mapping={
@@ -496,9 +506,6 @@ val_pipeline = [
     # dict(type='Resize', scale=(640, 512)),
     #dict(type='Resize', scale_factor=1.0),
     # dict(type='Normalize', mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True),
-
-    dict(type='AdaptiveHistEQU'),
-    # dict(type='RandomShiftOnlyImg', max_shift_px=10, prob=0.5),
 
     dict(
         type="CustomPackDetInputs",
@@ -571,7 +578,7 @@ optim_wrapper = dict(
     }),
 )
 
-max_epochs = 14
+max_epochs = 13
 train_cfg = dict(type="EpochBasedTrainLoop", max_epochs=max_epochs, val_interval=1)
 val_cfg = dict(type="ValLoop")
 test_cfg = dict(type="TestLoop")
@@ -587,10 +594,10 @@ param_scheduler = [
     ),
     dict(
         type='CosineAnnealingLR',
-        eta_min=base_lr * 0.02,
-        begin=1,
-        end=16,
-        T_max=16,
+        eta_min=base_lr * 0.05,
+        begin=8,
+        end=13,
+        T_max=5,
         by_epoch=True,
         verbose=True,
         # convert_to_iter_based=True,

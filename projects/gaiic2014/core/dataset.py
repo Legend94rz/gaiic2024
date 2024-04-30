@@ -10,13 +10,12 @@ import cv2
 import mmcv
 from mmcv.transforms import BaseTransform, LoadImageFromFile, RandomFlip, RandomResize, TransformBroadcaster, Normalize, Pad, LoadAnnotations, Normalize, RandomChoice
 from mmcv.transforms.utils import cache_random_params, cache_randomness
-from mmdet.datasets.transforms.transforms import Resize
 from mmengine.hooks import LoggerHook, CheckpointHook
 
 from mmdet.datasets import CocoDataset, MultiImageMixDataset, BaseDetDataset
 from mmdet.datasets.api_wrappers import COCO
 from mmdet.registry import DATASETS, MODELS
-from mmdet.datasets.transforms import RandomCrop, Mosaic, PackDetInputs, MixUp, PhotoMetricDistortion, RandomFlip
+from mmdet.datasets.transforms import Resize, RandomCrop, Mosaic, PackDetInputs, MixUp, PhotoMetricDistortion, RandomFlip
 from mmdet.models.utils.misc import samplelist_boxtype2tensor
 from mmdet.models.data_preprocessors.data_preprocessor import DetDataPreprocessor
 

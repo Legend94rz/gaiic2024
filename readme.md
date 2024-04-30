@@ -14,12 +14,12 @@
 [] giouloss -> ciou loss / siou loss
 [x] lr warmup & annealing
 [x] swa
-[] 测试下 test_cfg 的nms参数对测试集上大量目标的图片是否不够。
-[] 检查改进的concat fuse deform attn的几个重要参数的正确性（不同模态的参数是否变化不同）
-[] 检查 multi-scale是否有助于解决漏检的问题（若有，则需要加TTA，并且调整multi-scale增广）
-[] 检查是否有类似 p_obj 的输出，调节权重
-
-
+[x] 测试下 test_cfg 的nms参数对测试集上大量目标的图片是否不够。【似乎足够，测试nq=300, nms-thres->0.9，分数降低】
+[x] 检查改进的concat fuse deform attn的几个重要参数的正确性（不同模态的参数是否变化不同）：有效
+[] 检查 multi-scale是否有助于解决漏检的问题（若有，则需要加 **TTA**，并且调整multi-scale增广）
+[x] 检查是否有类似 p_obj 的输出，调节权重：FocalLoss use_sigmoid，不匹配的query预测是全0，而不是one-hot。
+[] *验证集加入训练*
+[] 输出后处理：如先确定recall接近1时的conf-thres, 在这附近，找一个conf-下降最快的点，低于该点的框置0（或者不输出）
 
 **WARN**
 由于B阶段只有一天时间，两次提交机会。每次提交之后一定注意要保存最优的模型权重，一旦丢失，当天是来不及重新训练的。
@@ -65,14 +65,15 @@ conf-thres=0    多模态+lrsch+shift+adaptiveHistEQU+Copypaste+randomsmear: 16 
 SWA / loss function / 怎么解决漏检过多的问题？
 
 conf-thres=0    多模态+lrsch+shift+autocontrast: 16 epoch               线上 0.4361348096499168 (0.650)  这种融合方式的最优epoch在[10, 15]之间
-                多模态+lrsch+shift+AdaptiveHistEQU+swa+concat deform attn: 10epoch max14e  线上 0.45847593272744164 (0.649)    由于wandb曲线与之前版本区别不大，需要检查下attn层几个重要的参数是否有区别，提高是不是仅由于swa带来的？
+                多模态+lrsch+shift+AdaptiveHistEQU+swa+concat deform attn: 10epoch max14e  线上 0.45847593272744164 (0.649) 
+                多模态+lrsch+shift+AdaptiveHistEQU+swa+concat deform attn: 14epoch max14e  线上 0.45142205638384225 (0.650) 
+
+_20240428_173223:
+    多模态, const lr + cos annealing, 10/13epoch, randshift+AdaptiveHistEQU+swa+concat deform attn: 线上 0.4901899498048514 (0.644)
+    多模态, const lr + cos annealing, 13/13epoch, randshift+AdaptiveHistEQU+swa+concat deform attn: 线上 0.4892719064102989 (0.647)
 
 
-                多模态+lrsch+shift+autocontrast 8/9/10 swa              线上?
-
-                多模态+lrsch+shift+hisEqulColor2+new arch: 1epoch       线上?
-                多模态+lrsch+shift+hisEqulColor2+new arch: 10epoch       线上?
-
+## TODO
 conf-thres=0    mosaic + 多模态: 1epoch     线上 ?
 conf-thres=0    mosaic + 多模态: ~5epoch    线上 
 
