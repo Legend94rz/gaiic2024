@@ -69,8 +69,12 @@ conf-thres=0    多模态+lrsch+shift+autocontrast: 16 epoch               线�
                 多模态+lrsch+shift+AdaptiveHistEQU+swa+concat deform attn: 14epoch max14e  线上 0.45142205638384225 (0.650) 
 
 _20240428_173223:
-    多模态, const lr + cos annealing, 10/13epoch, randshift+AdaptiveHistEQU+swa+concat deform attn: 线上 0.4901899498048514 (0.644)
+    多模态, const lr + cos annealing, 10/13epoch, randshift+AdaptiveHistEQU+swa+concat deform attn: 线上 0.4901899498048514 (0.644) tta 0.4683023883758988 可能参数没调好，需要检查下结果，并且tta可能超时(1h)
     多模态, const lr + cos annealing, 13/13epoch, randshift+AdaptiveHistEQU+swa+concat deform attn: 线上 0.4892719064102989 (0.647)
+
+_20240502_114151
+    基于_20240428_173223，调大QualityFocalLoss权重，SWA调早1个epoch，增大MultiScale范围，pad->0， 10/12 epoch 线上 0.4897002480529805 (0.641)
+    ... 12/12 epoch 线上 0.48846226714393864 (0.643)
 
 
 ## TODO

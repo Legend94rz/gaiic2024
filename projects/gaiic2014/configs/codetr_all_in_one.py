@@ -15,7 +15,7 @@ default_hooks = dict(
     checkpoint=dict(type="CheckpointHook", interval=1, by_epoch=True, max_keep_ckpts=3),
     sampler_seed=dict(type="DistSamplerSeedHook"),
     visualization=dict(type="DetVisualizationHook"),
-    ema=dict(type="MyEMAHook", ema_type="StochasticWeightAverage", begin_epoch=9)
+    ema=dict(type="MyEMAHook", ema_type="StochasticWeightAverage", begin_epoch=8)
 )
 
 env_cfg = dict(
@@ -190,7 +190,7 @@ model = dict(
             type="SinePositionalEncoding", num_feats=128, temperature=20, normalize=True
         ),
         loss_cls=dict(  # Different from the DINO
-            type="QualityFocalLoss", use_sigmoid=True, beta=2.0, loss_weight=1.0
+            type="QualityFocalLoss", use_sigmoid=True, beta=2.0, loss_weight=1.5
         ),
         loss_bbox=dict(type="L1Loss", loss_weight=5.0),
         loss_iou=dict(type="GIoULoss", loss_weight=2.0),    # TODO -> DIoU?
@@ -216,6 +216,7 @@ model = dict(
             use_sigmoid=True,
             loss_weight=1.0 * num_dec_layer * loss_lambda,
         ),  # 影响 loss_rpn_cls 一项
+        reg_decoded_bbox=False,
         loss_bbox=dict(type="L1Loss", loss_weight=1.0 * num_dec_layer * loss_lambda),   # 影响 loss_rpn_bbox 一项 [可改成GIOU等]
     ),
     roi_head=[
@@ -426,28 +427,34 @@ model = dict(
 #     dict(type="CustomPackDetInputs"),
 # ]
 image_size = (640, 512)
+transform_broadcast = dict(
+    type="BugFreeTransformBroadcaster",
+    mapping={
+        "img": ["tir", "img"],
+        "img_shape": ["img_shape", "img_shape"],
+        "gt_bboxes": ['gt_bboxes', 'gt_bboxes'],
+        "gt_bboxes_labels": ['gt_bboxes_labels', 'gt_bboxes_labels'],
+        "gt_ignore_flags": ['gt_ignore_flags', 'gt_ignore_flags'],
+        "scale_factor": ['scale_factor', 'scale_factor'],
+        "flip": ["flip", "flip"],
+        "flip_direction": ["flip_direction", "flip_direction"],
+    },
+    auto_remap=True,
+    share_random_params=True,
+)
 train_pipeline = [
     dict(type="LoadImageFromFile"),
     dict(type="LoadTirFromPath"),
     dict(type="LoadAnnotations", with_bbox=True),
     dict(type='AdaptiveHistEQU'),
-    dict(type='RandomShiftOnlyImg', max_shift_px=10, prob=0.5),
+    dict(type='RandomShiftOnlyImg', max_shift_px=12, prob=0.5),
     dict(
-        type="BugFreeTransformBroadcaster",
-        mapping={
-            "img": ["tir", "img"],
-            "img_shape": ["img_shape", "img_shape"],
-            "gt_bboxes": ['gt_bboxes', 'gt_bboxes'],
-            "gt_bboxes_labels": ['gt_bboxes_labels', 'gt_bboxes_labels'],
-            "gt_ignore_flags": ['gt_ignore_flags', 'gt_ignore_flags'],
-        },
-        auto_remap=True,
-        share_random_params=True,
+        **transform_broadcast,
         transforms=[
             dict(
                 type='RandomResize',
                 scale=image_size,
-                ratio_range=(0.75, 1.5),
+                ratio_range=(0.7, 1.5),
                 keep_ratio=True
             ),
             dict(
@@ -457,7 +464,7 @@ train_pipeline = [
                 allow_negative_crop=False,
             ), # NOTE: 目前它不会过滤掉因crop导致bbox可见区域过小的情况，对线上分数影响未知。
             dict(type='RandomFlip', prob=0.5),
-            dict(type='Pad', size=image_size, pad_val=dict(img=(114, 114, 114))),
+            dict(type='Pad', size=image_size, pad_val=dict(img=(0, 0, 0))),
             # dict(type='Resize', scale=(640, 512)),
         ],
     ),
@@ -488,17 +495,7 @@ val_pipeline = [
     # dict(type='RandomShiftOnlyImg', max_shift_px=10, prob=0.5),
     dict(type='AdaptiveHistEQU'),
     dict(
-        type="BugFreeTransformBroadcaster",
-        mapping={
-            "img": ["tir", "img"],
-            "img_shape": ["img_shape", "img_shape"],
-            "gt_bboxes": ['gt_bboxes', 'gt_bboxes'],
-            "gt_bboxes_labels": ['gt_bboxes_labels', 'gt_bboxes_labels'],
-            "gt_ignore_flags": ['gt_ignore_flags', 'gt_ignore_flags'],
-            "scale_factor": ['scale_factor', 'scale_factor'],
-        },
-        auto_remap=True,
-        share_random_params=True,
+        **transform_broadcast,
         transforms=[
             dict(type='Resize', scale=(640, 512)),
         ],
@@ -557,6 +554,43 @@ test_dataloader = dict(
     ),
 )
 
+tta_model = dict(
+    type='DetTTAModel',
+    tta_cfg=dict(
+        nms=dict(
+            type='nms',
+            iou_threshold=0.9
+        ),
+        max_per_img=300
+    )
+)
+
+tta_pipeline = [
+    dict(type="LoadImageFromFile"),
+    dict(type="LoadTirFromPath"),
+    dict(type="LoadAnnotations", with_bbox=True),
+    # dict(type='RandomShiftOnlyImg', max_shift_px=10, prob=0.5),
+    dict(type='AdaptiveHistEQU'),
+    dict(
+        type='TestTimeAug',
+        transforms=[
+            [
+                dict(**transform_broadcast, transforms=[dict(type='Resize', scale=(1333, 480), keep_ratio=True)]),
+                dict(**transform_broadcast, transforms=[dict(type='Resize', scale=(1333, 512), keep_ratio=True)]),
+                dict(**transform_broadcast, transforms=[dict(type='Resize', scale=(1333, 768), keep_ratio=True)]),
+            ], [
+                dict(**transform_broadcast, transforms=[dict(type='RandomFlip', prob=1.)]),
+                dict(**transform_broadcast, transforms=[dict(type='RandomFlip', prob=0.)]),
+            ], [
+                dict(
+                    type='CustomPackDetInputs',
+                    meta_keys=('img_id', 'img_path', 'ori_shape', 'img_shape', 'scale_factor', 'flip', 'flip_direction')
+                )
+            ]
+        ]
+    )
+]
+
 test_evaluator = dict(
     type="CocoMetric",
     ann_file=f"{data_root}/annotations/test.json",
@@ -578,7 +612,7 @@ optim_wrapper = dict(
     }),
 )
 
-max_epochs = 13
+max_epochs = 12
 train_cfg = dict(type="EpochBasedTrainLoop", max_epochs=max_epochs, val_interval=1)
 val_cfg = dict(type="ValLoop")
 test_cfg = dict(type="TestLoop")
@@ -595,9 +629,9 @@ param_scheduler = [
     dict(
         type='CosineAnnealingLR',
         eta_min=base_lr * 0.05,
-        begin=8,
-        end=13,
-        T_max=5,
+        begin=7,
+        end=12,
+        T_max=4,
         by_epoch=True,
         verbose=True,
         # convert_to_iter_based=True,
