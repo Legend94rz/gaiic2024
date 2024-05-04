@@ -12,10 +12,10 @@ default_hooks = dict(
     timer=dict(type="IterTimerHook"),
     logger=dict(type="LoggerHook", interval=50),
     param_scheduler=dict(type="ParamSchedulerHook"),
-    checkpoint=dict(type="CheckpointHook", interval=1, by_epoch=True, max_keep_ckpts=3),
+    checkpoint=dict(type="CheckpointHook", interval=1, by_epoch=True, max_keep_ckpts=5),
     sampler_seed=dict(type="DistSamplerSeedHook"),
     visualization=dict(type="DetVisualizationHook"),
-    ema=dict(type="MyEMAHook", ema_type="StochasticWeightAverage", begin_epoch=8)
+    ema=dict(type="MyEMAHook", ema_type="StochasticWeightAverage", begin_epoch=9)
 )
 
 env_cfg = dict(
@@ -559,7 +559,7 @@ tta_model = dict(
     tta_cfg=dict(
         nms=dict(
             type='nms',
-            iou_threshold=0.9
+            iou_threshold=0.5
         ),
         max_per_img=300
     )
@@ -612,7 +612,7 @@ optim_wrapper = dict(
     }),
 )
 
-max_epochs = 12
+max_epochs = 13
 train_cfg = dict(type="EpochBasedTrainLoop", max_epochs=max_epochs, val_interval=1)
 val_cfg = dict(type="ValLoop")
 test_cfg = dict(type="TestLoop")
@@ -629,9 +629,9 @@ param_scheduler = [
     dict(
         type='CosineAnnealingLR',
         eta_min=base_lr * 0.05,
-        begin=7,
-        end=12,
-        T_max=4,
+        begin=8,
+        end=13,
+        T_max=5,
         by_epoch=True,
         verbose=True,
         # convert_to_iter_based=True,
