@@ -14,7 +14,7 @@ def parse_args():
         prediction results using Weighted \
         Boxes Fusion from multiple models.')
     parser.add_argument(
-        'pred-results',
+        'pred_results',
         type=str,
         nargs='+',
         help='files of prediction results \
@@ -64,8 +64,7 @@ def parse_args():
 def main():
     args = parse_args()
 
-    assert len(args.models_name) == len(args.pred_results), \
-        'the quantities of model names and prediction results are not equal'
+    # assert len(args.models_name) == len(args.pred_results), 'the quantities of model names and prediction results are not equal'
 
     cocoGT = COCO(args.annotation)
 

@@ -13,17 +13,19 @@ def parse_args():
     parser.add_argument("-p", "--pred", default=None, help='pred.json if test set.')
     parser.add_argument("-f", "--folder", default="train", type=str, help='image folder')
     parser.add_argument("-s", "--save_path", default="vis", type=str, help="the output folder for vis result")
-    parser.add_argument("-t", "--thres", default=0.5, type=int, help="threshold for prediction objects.")
+    parser.add_argument("-t", "--thres", default=0.5, type=float, help="threshold for prediction objects.")
     return parser.parse_args()
 
 
-def draw_bbox(img, boxes):
+def draw_bbox(img, boxes, scores=None):
     palette = {1: (5, 5, 214), 2: (26, 237, 26), 3:(225, 10, 10), 4:(32, 244, 244), 5:(230, 18, 230)}   # RGB
-    for box in boxes:
+    for i, box in enumerate(boxes):
         color = palette[box['category_id']]
         pt1 = np.array(box['bbox'][:2])
         pt2 = pt1 + np.array(box['bbox'][2:])
         cv2.rectangle(img, pt1.astype(int).tolist(), pt2.astype(int).tolist(), color[::-1], thickness=3)
+        if scores[i] is not None:
+            cv2.putText(img, f"{scores[i]:.3f}", (pt1-[0, 4]).astype(int).tolist(), cv2.FONT_HERSHEY_COMPLEX, 0.6, color[::-1], thickness=1)
     return img
 
 
@@ -52,8 +54,9 @@ if __name__ == "__main__":
 
     for img_id, img in tqdm(images.items()):
         bboxes = [x for x in annotations if x['image_id'] == img_id and ('score' not in x or x['score'] > args.thres)]
-        tir = draw_bbox(cv2.imread(str(f /  "tir" / img['file_name'])), bboxes)
-        rgb = draw_bbox(cv2.imread(str(f /  "rgb" / img['file_name'])), bboxes)
+        scores = [(x['score'] if 'score' in x else None) for x in annotations if x['image_id'] == img_id  and ('score' not in x or x['score'] > args.thres)]
+        tir = draw_bbox(cv2.imread(str(f /  "tir" / img['file_name'])), bboxes, scores)
+        rgb = draw_bbox(cv2.imread(str(f /  "rgb" / img['file_name'])), bboxes, scores)
         mat = np.concatenate([tir, rgb], axis=0)
         cv2.imwrite(str(s / img['file_name']), mat)
     

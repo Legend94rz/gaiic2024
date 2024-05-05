@@ -10,3 +10,5 @@ eda.ipynb
 *.json
 wandb/
 *.jpg
+*.png
+run.sh

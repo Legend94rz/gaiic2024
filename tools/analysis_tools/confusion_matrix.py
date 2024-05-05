@@ -174,7 +174,7 @@ def plot_confusion_matrix(confusion_matrix,
 
     num_classes = len(labels)
     fig, ax = plt.subplots(
-        figsize=(0.5 * num_classes, 0.5 * num_classes * 0.8), dpi=180)
+        figsize=(num_classes, num_classes * 0.8), dpi=400)
     cmap = plt.get_cmap(color_theme)
     im = ax.imshow(confusion_matrix, cmap=cmap)
     plt.colorbar(mappable=im, ax=ax)
@@ -255,7 +255,7 @@ def main():
     if not os.path.exists(args.save_dir):
         os.makedirs(args.save_dir)
 
-    dataset = DATASETS.build(cfg.test_dataloader.dataset)
+    dataset = DATASETS.build(cfg.val_dataloader.dataset)
 
     confusion_matrix = calculate_confusion_matrix(dataset, results,
                                                   args.score_thr,
