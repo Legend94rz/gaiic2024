@@ -426,6 +426,18 @@ class AdaptiveHistEQU(BaseTransform):
         return results
 
 
+@TRANSFORMS.register_module()
+class ImgBlend(BaseTransform):
+    def __init__(self, fuse_keys=['img', 'tir'], alphas=[0.25, 0.75]):
+        self.fuse_keys = fuse_keys
+        self.alphas = alphas
+        assert len(self.alphas) == len(self.fuse_keys) == 2
+
+    def transform(self, results):
+        results['img'] = cv2.addWeighted(results[self.fuse_keys[0]], self.alphas[0], results[self.fuse_keys[1]], self.alphas[1], 0)
+        return results
+
+
 @DATASETS.register_module()
 class GAIIC2014DatasetV2(CocoDataset):
     METAINFO = {

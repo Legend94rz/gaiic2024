@@ -36,12 +36,15 @@ if __name__ == "__main__":
         cate = single_img_res['pred_instances']['labels']
         for i in range(len(score)):
             if score[i] > args.threshold:
-                submit.append({
-                    "image_id": single_img_res['img_id'],
-                    "category_id": cate[i].item() + 1,      # 1-based when submit
-                    "score": score[i].item(),
-                    "bbox": [round(x, 2) for x in bbox[i].tolist()]
-                })
+                x, y, w, h = bbox[i].tolist()
+                # if True:
+                if not ((w < 5 and (x<1 or x+w > 639)) or (h<5 and (y<1 or y+h > 511))):
+                    submit.append({
+                        "image_id": single_img_res['img_id'],
+                        "category_id": cate[i].item() + 1,      # 1-based when submit
+                        "score": score[i].item(),
+                        "bbox": [round(x, 2) for x in bbox[i].tolist()]
+                    })
     ## append fake detect to missing image
     already = {x['image_id'] for x in submit}
     fake = 0

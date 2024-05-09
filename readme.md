@@ -70,20 +70,27 @@ conf-thres=0    多模态+lrsch+shift+autocontrast: 16 epoch               线�
                 多模态+lrsch+shift+AdaptiveHistEQU+swa+concat deform attn: 14epoch max14e  线上 0.45142205638384225 (0.650) 
 
 _20240428_173223:
-    多模态, const lr + cos annealing, 10/13epoch, randshift+AdaptiveHistEQU+swa+concat deform attn: 线上 0.4901899498048514 (0.644) tta 0.4683023883758988 可能参数没调好，需要检查下结果，并且tta可能超时(1h)
-    多模态, const lr + cos annealing, 13/13epoch, randshift+AdaptiveHistEQU+swa+concat deform attn: 线上 0.4892719064102989 (0.647)
+    多模态, const lr + cos annealing, 10/13epoch, randshift+AdaptiveHistEQU+swa+concat deform attn: 线上 0.4901899498048514 (0.644 0.866 0.769 0.322 0.647 0.831) tta 0.4683023883758988 可能参数没调好，需要检查下结果，并且tta可能超时(1h)
+    多模态, const lr + cos annealing, 13/13epoch, randshift+AdaptiveHistEQU+swa+concat deform attn: 线上 0.4892719064102989 (0.647 0.868 0.770 0.324 0.650 0.835)
 
 _20240502_114151
-    基于_20240428_173223，调大QualityFocalLoss权重，SWA调早1个epoch，增大MultiScale/Shift范围，pad->0， 10/12 epoch 线上 0.4897002480529805 (0.641)
+    基于_20240428_173223，调大QualityFocalLoss权重，SWA调早1个epoch，增大MultiScale/Shift范围，pad->0， 10/12 epoch 线上 0.4897002480529805 (0.641 0.863 0.769 0.322 0.644 0.839)
     ... 12/12 epoch 线上 0.48846226714393864 (0.643)
 
 _20240503_215119
     基于 _20240502_114151，SWA 调回0428。 9/13 epoch 线上 0.4845854188056091 (0.643) 理论上这个是单模型. [ 有机会测试下7/8epoch的 ]
     ...  10/13 epoch 线上 0.4861246502594757 (0.644)
     ...  11/13 epoch 线上 0.48600053907053986 (0.646)  
-    ... 8/13 epoch 线上 ? (0.639)
+    ... 8/13 epoch 线上 0.47316129186568373 (0.639) :    【单模差不多是9/10个epoch最高】
 
+_20240505_140046
+    基于 _20240502_114151，回调QualityFocalLoss权重。 10/12 epoch 线上 0.4882847270360551 (0.642 0.860 0.770 0.277 0.645 0.839)
+    基于 _20240502_114151，回调QualityFocalLoss权重。 12/12 epoch 线上 0.4858214711495492 (0.644 0.862 0.770 0.287 0.646 0.840)
 
+20240507: 基于 _20240428_173223 10 epoch, 去掉边缘小于5像素的框: 0.490305915043059. 提高可以忽略不计。
+
+_20240507_105236:
+    基于 _20240428_173223 训练+验证集合并训练。 10/13 epoch 线上 0.48946345511761813 (0.706 0.926 0.841 0.376 0.712 0.874 <验证集结果仅作参考>)
 
 
 ## TODO
@@ -93,3 +100,19 @@ conf-thres=0    mosaic + 多模态: ~5epoch    线上
 conf-thres=0    多模态: x epoch 增广rgb     线上 ?
 
 
+## environment
+
+```
+conda create --name gaiic python=3.10 mamba -y
+conda activate gaiic
+
+mamba install pytorch torchvision torchaudio pytorch-cuda=11.8 -c pytorch -c nvidia/label/cuda-11.8.0 -y
+mamba install openmim einops wandb seaborn -y
+pip install fairscale -y
+pip install ensemble-boxes -y
+pip install transformers -y     # glip
+
+mim install mmengine -y
+mim install "mmcv>=2.0.0" -y
+mim install mmdet -y
+```

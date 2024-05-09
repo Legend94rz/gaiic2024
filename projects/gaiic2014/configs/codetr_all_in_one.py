@@ -190,7 +190,7 @@ model = dict(
             type="SinePositionalEncoding", num_feats=128, temperature=20, normalize=True
         ),
         loss_cls=dict(  # Different from the DINO
-            type="QualityFocalLoss", use_sigmoid=True, beta=2.0, loss_weight=1.5
+            type="QualityFocalLoss", use_sigmoid=True, beta=2.0, loss_weight=1.0
         ),
         loss_bbox=dict(type="L1Loss", loss_weight=5.0),
         loss_iou=dict(type="GIoULoss", loss_weight=2.0),    # TODO -> DIoU?
@@ -386,46 +386,6 @@ model = dict(
     ],
 )
 
-# train_pipeline = [
-#     dict(
-#         type='MultiInputMosaic',
-#         keys=['img', 'tir'],
-#         prob=1.0,
-#         img_scale = (640, 512),
-#         center_ratio_range = (0.7, 1.3), 
-#         pad_val = 114.0,
-#         bbox_clip_border=False,
-#         individual_pipeline=[
-#             dict(type="LoadImageFromFile"),
-#             dict(type="LoadTirFromPath"),
-#             dict(type="LoadAnnotations", with_bbox=True),
-#             dict(
-#                 type="BugFreeTransformBroadcaster",
-#                 mapping={
-#                     "img": ["tir", "img"],
-#                     "img_shape": ["img_shape", "img_shape"],
-#                     "gt_bboxes": ['gt_bboxes', 'gt_bboxes'],
-#                     "gt_bboxes_labels": ['gt_bboxes_labels', 'gt_bboxes_labels'],
-#                     "gt_ignore_flags": ['gt_ignore_flags', 'gt_ignore_flags'],
-#                 },
-#                 auto_remap=True,
-#                 share_random_params=True,
-#                 transforms=[
-#                     dict(
-#                         type='RandomCrop',
-#                         crop_type='absolute_range',
-#                         crop_size=(576, 640),
-#                         allow_negative_crop=False,
-#                     ),
-#                     dict(type='RandomFlip', prob=0.5),
-#                     dict(type='Resize', scale=(640, 512)),
-#                 ],
-#             ),
-#         ]
-#     ),
-#     # dict(type='Normalize', mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True),
-#     dict(type="CustomPackDetInputs"),
-# ]
 image_size = (640, 512)
 transform_broadcast = dict(
     type="BugFreeTransformBroadcaster",
@@ -447,14 +407,14 @@ train_pipeline = [
     dict(type="LoadTirFromPath"),
     dict(type="LoadAnnotations", with_bbox=True),
     dict(type='AdaptiveHistEQU'),
-    dict(type='RandomShiftOnlyImg', max_shift_px=12, prob=0.5),
+    dict(type='RandomShiftOnlyImg', max_shift_px=10, prob=0.5),
     dict(
         **transform_broadcast,
         transforms=[
             dict(
                 type='RandomResize',
                 scale=image_size,
-                ratio_range=(0.7, 1.5),
+                ratio_range=(0.75, 1.5),
                 keep_ratio=True
             ),
             dict(
@@ -464,7 +424,7 @@ train_pipeline = [
                 allow_negative_crop=False,
             ), # NOTE: 目前它不会过滤掉因crop导致bbox可见区域过小的情况，对线上分数影响未知。
             dict(type='RandomFlip', prob=0.5),
-            dict(type='Pad', size=image_size, pad_val=dict(img=(0, 0, 0))),
+            dict(type='Pad', size=image_size, pad_val=dict(img=(114, 114, 114))),
             # dict(type='Resize', scale=(640, 512)),
         ],
     ),
@@ -478,14 +438,27 @@ train_dataloader = dict(
     prefetch_factor=4,
     sampler=dict(type="DefaultSampler", shuffle=True),
     dataset=dict(
-        type=dataset_type,
-        data_root=data_root,
-        serialize_data=False,
-        ann_file="annotations/train.json",
-        data_prefix=dict(img_path="train/rgb", tir_path="train/tir"),
-        # filter_cfg=dict(filter_empty_gt=False, min_size=32),
-        pipeline=train_pipeline,
-    ),
+        type="ConcatDataset",
+        datasets=[
+            dict(
+                type=dataset_type,
+                data_root=data_root,
+                serialize_data=False,
+                ann_file="annotations/train.json",
+                data_prefix=dict(img_path="train/rgb", tir_path="train/tir"),
+                pipeline=train_pipeline,
+            ),
+            dict(
+                type=dataset_type,
+                serialize_data=False,
+                data_root=data_root,
+                ann_file="annotations/val.json",
+                data_prefix=dict(img_path="val/rgb", tir_path="val/tir"),
+                pipeline=train_pipeline,
+            ),
+        ]
+    )
+    
 )
 
 val_pipeline = [
@@ -497,12 +470,12 @@ val_pipeline = [
     dict(
         **transform_broadcast,
         transforms=[
-            dict(type='Resize', scale=(640, 512)),
+            # dict(type='Resize', scale=(640, 512)),
+            dict(type='Resize', scale=(720, 576), keep_ratio=True),
+            # dict(type='Resize', scale=(1333, 768), keep_ratio=True),
+            # dict(type='Resize', scale=(1333, 480), keep_ratio=True),
         ],
     ),
-    # dict(type='Resize', scale=(640, 512)),
-    #dict(type='Resize', scale_factor=1.0),
-    # dict(type='Normalize', mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True),
 
     dict(
         type="CustomPackDetInputs",
@@ -613,7 +586,7 @@ optim_wrapper = dict(
 )
 
 max_epochs = 13
-train_cfg = dict(type="EpochBasedTrainLoop", max_epochs=max_epochs, val_interval=1)
+train_cfg = dict(type="EpochBasedTrainLoop", max_epochs=max_epochs, val_interval=2)
 val_cfg = dict(type="ValLoop")
 test_cfg = dict(type="TestLoop")
 

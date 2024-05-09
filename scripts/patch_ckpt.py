@@ -3,8 +3,8 @@ from einops import repeat
 
 
 if __name__ == "__main__":
-    input_ckpt = "/home/renzhen/userdata/repo/gaiic2024/ckpt/co_dino_5scale_swin_large_16e_o365tococo-614254c9.pth"
-    save_ckpt = "/home/renzhen/userdata/repo/gaiic2024/ckpt/co_dino_5scale_swin_large_16e_o365tococo-614254c9_patched.pth"
+    input_ckpt = "ckpt/co_dino_5scale_swin_large_16e_o365tococo-614254c9.pth"
+    save_ckpt = "ckpt/co_dino_5scale_swin_large_16e_o365tococo-614254c9_patched.pth"
 
     ckpt = torch.load(input_ckpt, map_location='cpu')
 
