@@ -438,27 +438,14 @@ train_dataloader = dict(
     prefetch_factor=4,
     sampler=dict(type="DefaultSampler", shuffle=True),
     dataset=dict(
-        type="ConcatDataset",
-        datasets=[
-            dict(
-                type=dataset_type,
-                data_root=data_root,
-                serialize_data=False,
-                ann_file="annotations/train.json",
-                data_prefix=dict(img_path="train/rgb", tir_path="train/tir"),
-                pipeline=train_pipeline,
-            ),
-            dict(
-                type=dataset_type,
-                serialize_data=False,
-                data_root=data_root,
-                ann_file="annotations/val.json",
-                data_prefix=dict(img_path="val/rgb", tir_path="val/tir"),
-                pipeline=train_pipeline,
-            ),
-        ]
-    )
-    
+        type=dataset_type,
+        data_root=data_root,
+        serialize_data=False,
+        ann_file="annotations/train.json",
+        data_prefix=dict(img_path="train/rgb", tir_path="train/tir"),
+        # filter_cfg=dict(filter_empty_gt=False, min_size=32),
+        pipeline=train_pipeline,
+    ),
 )
 
 val_pipeline = [
@@ -470,8 +457,8 @@ val_pipeline = [
     dict(
         **transform_broadcast,
         transforms=[
-            # dict(type='Resize', scale=(640, 512)),
-            dict(type='Resize', scale=(720, 576), keep_ratio=True),
+            dict(type='Resize', scale=(640, 512)),
+            # dict(type='Resize', scale=(720, 576), keep_ratio=True),
             # dict(type='Resize', scale=(1333, 768), keep_ratio=True),
             # dict(type='Resize', scale=(1333, 480), keep_ratio=True),
         ],
@@ -527,43 +514,6 @@ test_dataloader = dict(
     ),
 )
 
-tta_model = dict(
-    type='DetTTAModel',
-    tta_cfg=dict(
-        nms=dict(
-            type='nms',
-            iou_threshold=0.5
-        ),
-        max_per_img=300
-    )
-)
-
-tta_pipeline = [
-    dict(type="LoadImageFromFile"),
-    dict(type="LoadTirFromPath"),
-    dict(type="LoadAnnotations", with_bbox=True),
-    # dict(type='RandomShiftOnlyImg', max_shift_px=10, prob=0.5),
-    dict(type='AdaptiveHistEQU'),
-    dict(
-        type='TestTimeAug',
-        transforms=[
-            [
-                dict(**transform_broadcast, transforms=[dict(type='Resize', scale=(1333, 480), keep_ratio=True)]),
-                dict(**transform_broadcast, transforms=[dict(type='Resize', scale=(1333, 512), keep_ratio=True)]),
-                dict(**transform_broadcast, transforms=[dict(type='Resize', scale=(1333, 768), keep_ratio=True)]),
-            ], [
-                dict(**transform_broadcast, transforms=[dict(type='RandomFlip', prob=1.)]),
-                dict(**transform_broadcast, transforms=[dict(type='RandomFlip', prob=0.)]),
-            ], [
-                dict(
-                    type='CustomPackDetInputs',
-                    meta_keys=('img_id', 'img_path', 'ori_shape', 'img_shape', 'scale_factor', 'flip', 'flip_direction')
-                )
-            ]
-        ]
-    )
-]
-
 test_evaluator = dict(
     type="CocoMetric",
     ann_file=f"{data_root}/annotations/test.json",
@@ -586,7 +536,7 @@ optim_wrapper = dict(
 )
 
 max_epochs = 13
-train_cfg = dict(type="EpochBasedTrainLoop", max_epochs=max_epochs, val_interval=2)
+train_cfg = dict(type="EpochBasedTrainLoop", max_epochs=max_epochs, val_interval=1)
 val_cfg = dict(type="ValLoop")
 test_cfg = dict(type="TestLoop")
 

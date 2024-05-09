@@ -18,9 +18,14 @@
 [x] 检查改进的concat fuse deform attn的几个重要参数的正确性（不同模态的参数是否变化不同）：有效
 [] 检查 multi-scale是否有助于解决漏检的问题（若有，则需要加 **TTA**，并且调整multi-scale增广）
 [x] 检查是否有类似 p_obj 的输出，调节权重：FocalLoss use_sigmoid，不匹配的query预测是全0，而不是one-hot。
-[] *验证集加入训练*
+[x] *验证集加入训练*
 [] 输出后处理：如先确定recall接近1时的conf-thres, 在这附近，找一个conf-下降最快的点，低于该点的框置0（或者不输出）. 另外可能有面积极小甚至为0的框，需要去掉。
 [] weighted box fusion。官方实现很可能有bug，需要自己写
+[] soft-label?
+[x] 把那几个过小的，手动放大，测试下有无改善。若有，针对这部分数据特殊处理。【无改善】
+[] 数据清洗(规则 + ignore<有无可能做在线?>)
+
+
 
 **WARN**
 由于B阶段只有一天时间，两次提交机会。每次提交之后一定注意要保存最优的模型权重，一旦丢失，当天是来不及重新训练的。
@@ -108,7 +113,7 @@ conda activate gaiic
 
 mamba install pytorch torchvision torchaudio pytorch-cuda=11.8 -c pytorch -c nvidia/label/cuda-11.8.0 -y
 mamba install openmim einops wandb seaborn -y
-pip install fairscale -y
+pip install fairscale scikit-learn -y
 pip install ensemble-boxes -y
 pip install transformers -y     # glip
 

@@ -5,6 +5,8 @@ from pathlib import Path
 import pandas as pd
 import numpy as np
 from tqdm import tqdm
+import pickle as pkl
+from torchvision.ops.boxes import box_convert, box_iou
 
 
 def parse_args():
@@ -34,9 +36,25 @@ def load_anno(i, a):
         anno = json.load(fin)
 
     if i is not None:
-        with open(i) as fin:
-            obj = json.load(fin)
-        anno['annotations'] = obj
+        if i.endswith('.json'):
+            with open(i) as fin:
+                obj = json.load(fin)
+            anno['annotations'] = obj
+        elif i.endswith('.pkl'):
+            with open(i, 'rb') as fin:
+                obj = pkl.load(fin)
+            ano = []
+            for x in obj:
+                pred = x['pred_instances']
+                bbox = box_convert(pred['bboxes'], 'xyxy', 'xywh').numpy()
+                for j in range(len(pred['scores'])):
+                    ano.append({
+                        "image_id": x['img_id'],
+                        "score": pred['scores'][j].item(),
+                        "category_id": pred['labels'][j].item() + 1,      # 1-based when submit
+                        "bbox": [round(z, 2) for z in bbox[j].tolist()]
+                    })
+            anno['annotations'] = ano
     images = {
         x['id']: x
         for x in anno['images']
