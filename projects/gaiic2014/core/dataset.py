@@ -1,21 +1,23 @@
 from torch.utils.data import Dataset
 import copy
-from typing import Any, Callable, Dict, List, Sequence, Tuple, Union
+from typing import Any, Callable, Dict, List, Sequence, Tuple, Union, Optional
 from pathlib import Path
 import numpy as np
 import torch
 import random
 import cv2
+from torchvision.ops import box_iou
 
 import mmcv
-from mmcv.transforms import BaseTransform, LoadImageFromFile, RandomFlip, RandomResize, TransformBroadcaster, Normalize, Pad, LoadAnnotations, Normalize, RandomChoice
+from mmcv.transforms import BaseTransform, LoadImageFromFile, RandomFlip, RandomResize, TransformBroadcaster, Normalize, Pad, LoadAnnotations, Normalize, RandomChoice, RandomChoiceResize
 from mmcv.transforms.utils import cache_random_params, cache_randomness
 from mmengine.hooks import LoggerHook, CheckpointHook
 
 from mmdet.datasets import CocoDataset, MultiImageMixDataset, BaseDetDataset
 from mmdet.datasets.api_wrappers import COCO
 from mmdet.registry import DATASETS, MODELS
-from mmdet.datasets.transforms import Resize, RandomCrop, Mosaic, PackDetInputs, MixUp, PhotoMetricDistortion, RandomFlip
+from mmdet.structures.bbox import HorizontalBoxes, autocast_box_type
+from mmdet.datasets.transforms import Resize, RandomCrop, Mosaic, PackDetInputs, MixUp, PhotoMetricDistortion, RandomFlip, CutOut
 from mmdet.models.utils.misc import samplelist_boxtype2tensor
 from mmdet.models.data_preprocessors.data_preprocessor import DetDataPreprocessor
 
@@ -327,7 +329,7 @@ class RandomDropImgRegion(BaseTransform):
 class BugFreeTransformBroadcaster(TransformBroadcaster):
     def transform(self, results: Dict):
         """Broadcast wrapped transforms to multiple targets."""
-
+        results.pop('dataset', None)
         # Apply input remapping
         inputs = self._map_input(results, self.mapping)  # patch!!
 
@@ -435,6 +437,339 @@ class ImgBlend(BaseTransform):
 
     def transform(self, results):
         results['img'] = cv2.addWeighted(results[self.fuse_keys[0]], self.alphas[0], results[self.fuse_keys[1]], self.alphas[1], 0)
+        return results
+
+
+@TRANSFORMS.register_module()
+class RandomSafeCrop(BaseTransform):
+    """Random crop the image & bboxes & masks.
+
+    The absolute ``crop_size`` is sampled based on ``crop_type`` and
+    ``image_size``, then the cropped results are generated.
+
+    Required Keys:
+
+    - img
+    - gt_bboxes (BaseBoxes[torch.float32]) (optional)
+    - gt_bboxes_labels (np.int64) (optional)
+    - gt_masks (BitmapMasks | PolygonMasks) (optional)
+    - gt_ignore_flags (bool) (optional)
+    - gt_seg_map (np.uint8) (optional)
+
+    Modified Keys:
+
+    - img
+    - img_shape
+    - gt_bboxes (optional)
+    - gt_bboxes_labels (optional)
+    - gt_masks (optional)
+    - gt_ignore_flags (optional)
+    - gt_seg_map (optional)
+    - gt_instances_ids (options, only used in MOT/VIS)
+
+    Added Keys:
+
+    - homography_matrix
+
+    Args:
+        crop_size (tuple): The relative ratio or absolute pixels of
+            (width, height).
+        crop_type (str, optional): One of "relative_range", "relative",
+            "absolute", "absolute_range". "relative" randomly crops
+            (h * crop_size[0], w * crop_size[1]) part from an input of size
+            (h, w). "relative_range" uniformly samples relative crop size from
+            range [crop_size[0], 1] and [crop_size[1], 1] for height and width
+            respectively. "absolute" crops from an input with absolute size
+            (crop_size[0], crop_size[1]). "absolute_range" uniformly samples
+            crop_h in range [crop_size[0], min(h, crop_size[1])] and crop_w
+            in range [crop_size[0], min(w, crop_size[1])].
+            Defaults to "absolute".
+        allow_negative_crop (bool, optional): Whether to allow a crop that does
+            not contain any bbox area. Defaults to False.
+        recompute_bbox (bool, optional): Whether to re-compute the boxes based
+            on cropped instance masks. Defaults to False.
+        bbox_clip_border (bool, optional): Whether clip the objects outside
+            the border of the image. Defaults to True.
+
+    Note:
+        - If the image is smaller than the absolute crop size, return the
+            original image.
+        - The keys for bboxes, labels and masks must be aligned. That is,
+          ``gt_bboxes`` corresponds to ``gt_labels`` and ``gt_masks``, and
+          ``gt_bboxes_ignore`` corresponds to ``gt_labels_ignore`` and
+          ``gt_masks_ignore``.
+        - If the crop does not contain any gt-bbox region and
+          ``allow_negative_crop`` is set to False, skip this image.
+    """
+
+    def __init__(self,
+                 crop_size: tuple,
+                 crop_type: str = 'absolute',
+                 allow_negative_crop: bool = False,
+                 recompute_bbox: bool = False,
+                 bbox_clip_border: bool = True, block_if_below=0.5, block_keys=['img', 'tir']) -> None:
+        if crop_type not in [
+                'relative_range', 'relative', 'absolute', 'absolute_range'
+        ]:
+            raise ValueError(f'Invalid crop_type {crop_type}.')
+        if crop_type in ['absolute', 'absolute_range']:
+            assert crop_size[0] > 0 and crop_size[1] > 0
+            assert isinstance(crop_size[0], int) and isinstance(
+                crop_size[1], int)
+            if crop_type == 'absolute_range':
+                assert crop_size[0] <= crop_size[1]
+        else:
+            assert 0 < crop_size[0] <= 1 and 0 < crop_size[1] <= 1
+        self.crop_size = crop_size
+        self.crop_type = crop_type
+        self.allow_negative_crop = allow_negative_crop
+        self.bbox_clip_border = bbox_clip_border
+        self.recompute_bbox = recompute_bbox
+        self.block_if_below = block_if_below
+        self.block_keys = block_keys
+
+    def _crop_data(self, results: dict, crop_size: Tuple[int, int],
+                   allow_negative_crop: bool) -> Union[dict, None]:
+        """Function to randomly crop images, bounding boxes, masks, semantic
+        segmentation maps.
+
+        Args:
+            results (dict): Result dict from loading pipeline.
+            crop_size (Tuple[int, int]): Expected absolute size after
+                cropping, (h, w).
+            allow_negative_crop (bool): Whether to allow a crop that does not
+                contain any bbox area.
+
+        Returns:
+            results (Union[dict, None]): Randomly cropped results, 'img_shape'
+                key in result dict is updated according to crop size. None will
+                be returned when there is no valid bbox after cropping.
+        """
+        assert crop_size[0] > 0 and crop_size[1] > 0
+        img = results['img']
+        margin_h = max(img.shape[0] - crop_size[0], 0)
+        margin_w = max(img.shape[1] - crop_size[1], 0)
+        offset_h, offset_w = self._rand_offset((margin_h, margin_w))
+        crop_y1, crop_y2 = offset_h, offset_h + crop_size[0]
+        crop_x1, crop_x2 = offset_w, offset_w + crop_size[1]
+
+        # Record the homography matrix for the RandomCrop
+        homography_matrix = np.array(
+            [[1, 0, -offset_w], [0, 1, -offset_h], [0, 0, 1]],
+            dtype=np.float32)
+        if results.get('homography_matrix', None) is None:
+            results['homography_matrix'] = homography_matrix
+        else:
+            results['homography_matrix'] = homography_matrix @ results[
+                'homography_matrix']
+
+        # crop the image
+        img = img[crop_y1:crop_y2, crop_x1:crop_x2, ...]
+        img_shape = img.shape
+        results['img'] = img
+        results['img_shape'] = img_shape[:2]
+
+        # crop bboxes accordingly and clip to the image boundary
+        if results.get('gt_bboxes', None) is not None:
+            bboxes = results['gt_bboxes']
+            bboxes.translate_([-offset_w, -offset_h])
+            origin_area = bboxes.areas
+            if self.bbox_clip_border:
+                bboxes.clip_(img_shape[:2])
+            after_area = bboxes.areas
+            inside = bboxes.is_inside(img_shape[:2])
+            below_thres = after_area / origin_area < self.block_if_below
+            need_blocked = inside & below_thres
+            valid_inds = inside & (~below_thres)
+
+            may_affected = (box_iou(bboxes[valid_inds].tensor, bboxes[need_blocked].tensor)>0).any(1)
+            bkps = {key: results[key].copy() for key in self.block_keys}
+            for x1, y1, x2, y2 in bboxes[need_blocked].numpy().astype(int):
+                for key in self.block_keys:
+                    results[key][y1: y2, x1: x2] = 0
+            for x1, y1, x2, y2 in bboxes[valid_inds][may_affected].numpy().astype(int):
+                for key in self.block_keys:
+                    results[key][y1: y2, x1: x2] = bkps[key][y1: y2, x1: x2]
+            del bkps
+
+            # If the crop does not contain any gt-bbox area and
+            # allow_negative_crop is False, skip this image.
+            if (not valid_inds.any() and not allow_negative_crop):
+                return None
+
+            results['gt_bboxes'] = bboxes[valid_inds]
+
+            if results.get('gt_ignore_flags', None) is not None:
+                results['gt_ignore_flags'] = \
+                    results['gt_ignore_flags'][valid_inds]
+
+            if results.get('gt_bboxes_labels', None) is not None:
+                results['gt_bboxes_labels'] = \
+                    results['gt_bboxes_labels'][valid_inds]
+
+            if results.get('gt_masks', None) is not None:
+                results['gt_masks'] = results['gt_masks'][
+                    valid_inds.nonzero()[0]].crop(
+                        np.asarray([crop_x1, crop_y1, crop_x2, crop_y2]))
+                if self.recompute_bbox:
+                    results['gt_bboxes'] = results['gt_masks'].get_bboxes(
+                        type(results['gt_bboxes']))
+
+            # We should remove the instance ids corresponding to invalid boxes.
+            if results.get('gt_instances_ids', None) is not None:
+                results['gt_instances_ids'] = \
+                    results['gt_instances_ids'][valid_inds]
+
+        # crop semantic seg
+        if results.get('gt_seg_map', None) is not None:
+            results['gt_seg_map'] = results['gt_seg_map'][crop_y1:crop_y2,
+                                                          crop_x1:crop_x2]
+
+        return results
+
+    @cache_randomness
+    def _rand_offset(self, margin: Tuple[int, int]) -> Tuple[int, int]:
+        """Randomly generate crop offset.
+
+        Args:
+            margin (Tuple[int, int]): The upper bound for the offset generated
+                randomly.
+
+        Returns:
+            Tuple[int, int]: The random offset for the crop.
+        """
+        margin_h, margin_w = margin
+        offset_h = np.random.randint(0, margin_h + 1)
+        offset_w = np.random.randint(0, margin_w + 1)
+
+        return offset_h, offset_w
+
+    @cache_randomness
+    def _get_crop_size(self, image_size: Tuple[int, int]) -> Tuple[int, int]:
+        """Randomly generates the absolute crop size based on `crop_type` and
+        `image_size`.
+
+        Args:
+            image_size (Tuple[int, int]): (h, w).
+
+        Returns:
+            crop_size (Tuple[int, int]): (crop_h, crop_w) in absolute pixels.
+        """
+        h, w = image_size
+        if self.crop_type == 'absolute':
+            return min(self.crop_size[1], h), min(self.crop_size[0], w)
+        elif self.crop_type == 'absolute_range':
+            crop_h = np.random.randint(
+                min(h, self.crop_size[0]),
+                min(h, self.crop_size[1]) + 1)
+            crop_w = np.random.randint(
+                min(w, self.crop_size[0]),
+                min(w, self.crop_size[1]) + 1)
+            return crop_h, crop_w
+        elif self.crop_type == 'relative':
+            crop_w, crop_h = self.crop_size
+            return int(h * crop_h + 0.5), int(w * crop_w + 0.5)
+        else:
+            # 'relative_range'
+            crop_size = np.asarray(self.crop_size, dtype=np.float32)
+            crop_h, crop_w = crop_size + np.random.rand(2) * (1 - crop_size)
+            return int(h * crop_h + 0.5), int(w * crop_w + 0.5)
+
+    @autocast_box_type()
+    def transform(self, results: dict) -> Union[dict, None]:
+        """Transform function to randomly crop images, bounding boxes, masks,
+        semantic segmentation maps.
+
+        Args:
+            results (dict): Result dict from loading pipeline.
+
+        Returns:
+            results (Union[dict, None]): Randomly cropped results, 'img_shape'
+                key in result dict is updated according to crop size. None will
+                be returned when there is no valid bbox after cropping.
+        """
+        image_size = results['img'].shape[:2]
+        crop_size = self._get_crop_size(image_size)
+        results = self._crop_data(results, crop_size, self.allow_negative_crop)
+        return results
+
+    def __repr__(self) -> str:
+        repr_str = self.__class__.__name__
+        repr_str += f'(crop_size={self.crop_size}, '
+        repr_str += f'crop_type={self.crop_type}, '
+        repr_str += f'allow_negative_crop={self.allow_negative_crop}, '
+        repr_str += f'recompute_bbox={self.recompute_bbox}, '
+        repr_str += f'bbox_clip_border={self.bbox_clip_border})'
+        return repr_str
+
+
+@TRANSFORMS.register_module()
+class DualModalCutOut(BaseTransform):
+    def __init__(
+        self,
+        n_holes: Union[int, Tuple[int, int]],
+        cutout_shape: Optional[Union[Tuple[int, int],  List[Tuple[int, int]]]] = None,
+        cutout_ratio: Optional[Union[Tuple[float, float], List[Tuple[float, float]]]] = None,
+        fill_in: Union[Tuple[float, float, float], Tuple[int, int, int]] = (0, 0, 0),
+        modals=['img', 'tir'],
+    ) -> None:
+
+        assert (cutout_shape is None) ^ (cutout_ratio is None), \
+            'Either cutout_shape or cutout_ratio should be specified.'
+        assert (isinstance(cutout_shape, (list, tuple))
+                or isinstance(cutout_ratio, (list, tuple)))
+        if isinstance(n_holes, tuple):
+            assert len(n_holes) == 2 and 0 <= n_holes[0] < n_holes[1]
+        else:
+            n_holes = (n_holes, n_holes)
+        self.n_holes = n_holes
+        self.fill_in = fill_in
+        self.with_ratio = cutout_ratio is not None
+        self.candidates = cutout_ratio if self.with_ratio else cutout_shape
+        if not isinstance(self.candidates, list):
+            self.candidates = [self.candidates]
+        self.modals = modals
+        if len(modals) != 2:
+            print(f"[WARN] You'd better set two modals for `DualModalCutOut`.")
+
+    def get_params(self, h, w):
+        main_model = np.random.choice(self.modals)
+        holes = {}
+        for m in self.modals:
+            n_holes = np.random.randint(self.n_holes[0], self.n_holes[1] + 1)
+            tmp = []
+            for _ in range(n_holes):
+                index = np.random.randint(0, len(self.candidates))
+                if not self.with_ratio:
+                    cutout_w, cutout_h = self.candidates[index]
+                else:
+                    cutout_w = int(self.candidates[index][0] * w)
+                    cutout_h = int(self.candidates[index][1] * h)
+                x1 = np.random.randint(0, w - cutout_w)
+                y1 = np.random.randint(0, h - cutout_h)
+
+                x2 = np.clip(x1 + cutout_w, 0, w)
+                y2 = np.clip(y1 + cutout_h, 0, h)
+                tmp.append([x1, y1, x2, y2])
+            holes[m] = tmp
+        return main_model, holes
+
+    @autocast_box_type()
+    def transform(self, results: dict) -> dict:
+        """Call function to drop some regions of image."""
+        h, w, c = results['img'].shape
+        main_modal, holes = self.get_params(h, w)
+        mask = np.zeros_like(results[main_modal], dtype='bool')
+        for m in self.modals:
+            for x1, y1, x2, y2 in holes[m]:
+                # results[m][y1:y2, x1:x2] = self.fill_in
+                if m == main_modal:
+                    results[m][y1:y2, x1:x2] = self.fill_in
+                    mask[y1:y2, x1:x2] = True
+                else:
+                    tmp = mask[y1:y2, x1:x2]
+                    results[m][y1:y2, x1:x2] = results[m][y1:y2, x1:x2] * tmp + (~tmp) * self.fill_in
+
         return results
 
 

@@ -23,8 +23,12 @@
 [] weighted box fusion。官方实现很可能有bug，需要自己写
 [] soft-label?
 [x] 把那几个过小的，手动放大，测试下有无改善。若有，针对这部分数据特殊处理。【无改善】
-[] 数据清洗(规则 + ignore<有无可能做在线?>)
-
+[] 确认下，good/bad分别是什么原因导致的，如果bad里预测没问题，而仅仅是标注错了，那数据清洗的收益可能不大。以及good是否是真good，还是因为预测和标注都错了所以分数高。
+[] 数据清洗(规则 + ignore<有无可能做在线?>) 对于训练+验证集：过大的van(>150): 规则筛选后修改标注。(100~150?): 在线ignore
+[] 训练集目前发现的问题: 
+    van与freight_car类别相互误标；
+    van里还误标了一些car
+    truck/bus标注相对干净，只有少量car/van被误标。
 
 
 **WARN**
@@ -97,6 +101,10 @@ _20240505_140046
 _20240507_105236:
     基于 _20240428_173223 训练+验证集合并训练。 10/13 epoch 线上 0.48946345511761813 (0.706 0.926 0.841 0.376 0.712 0.874 <验证集结果仅作参考>)
 
+_20240511_153021:
+    大致基于 _20240428_173223, 修改RandomCrop，Resize离散化、涂黑Crop边缘过小的目标并删除box（想解决图像边缘生成过多无效box的问题）。10/13 epoch 线上 0.4841715521016622 (0.642 0.859 0.767 0.318 0.646 0.835)
+
+
 
 ## TODO
 conf-thres=0    mosaic + 多模态: 1epoch     线上 ?
@@ -113,11 +121,11 @@ conda activate gaiic
 
 mamba install pytorch torchvision torchaudio pytorch-cuda=11.8 -c pytorch -c nvidia/label/cuda-11.8.0 -y
 mamba install openmim einops wandb seaborn -y
-pip install fairscale scikit-learn -y
-pip install ensemble-boxes -y
-pip install transformers -y     # glip
+pip install fairscale scikit-learn
+pip install ensemble-boxes
+pip install transformers     # glip
 
-mim install mmengine -y
-mim install "mmcv>=2.0.0" -y
-mim install mmdet -y
+mim install mmengine
+mim install "mmcv>=2.0.0"
+mim install mmdet
 ```

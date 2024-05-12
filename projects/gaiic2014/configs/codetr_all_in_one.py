@@ -412,17 +412,19 @@ train_pipeline = [
         **transform_broadcast,
         transforms=[
             dict(
-                type='RandomResize',
-                scale=image_size,
-                ratio_range=(0.75, 1.5),
+                type='RandomChoiceResize',
+                scales=[(480, 2048), (512, 2048), (544, 2048), (576, 2048),
+                        (608, 2048), (640, 2048), (672, 2048), (704, 2048),
+                        (736, 2048), (768, 2048), (800, 2048), (832, 2048),
+                        (864, 2048), (896, 2048), (928, 2048), (960, 2048),],
                 keep_ratio=True
             ),
             dict(
-                type='RandomCrop',
+                type='RandomSafeCrop',
                 crop_type='absolute',
                 crop_size=image_size,
-                allow_negative_crop=False,
-            ), # NOTE: 目前它不会过滤掉因crop导致bbox可见区域过小的情况，对线上分数影响未知。
+                allow_negative_crop=True,
+            ),
             dict(type='RandomFlip', prob=0.5),
             dict(type='Pad', size=image_size, pad_val=dict(img=(114, 114, 114))),
             # dict(type='Resize', scale=(640, 512)),

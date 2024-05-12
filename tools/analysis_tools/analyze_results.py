@@ -370,21 +370,23 @@ def main():
         cfg.merge_from_dict(args.cfg_options)
     init_default_scope(cfg.get('default_scope', 'mmdet'))
 
-    cfg.test_dataloader.dataset.test_mode = True
+    cfg.val_dataloader.dataset.test_mode = True
 
-    cfg.test_dataloader.pop('batch_size', 0)
-    if cfg.train_dataloader.dataset.type in ('MultiImageMixDataset',
-                                             'ClassBalancedDataset',
-                                             'RepeatDataset'):
-        cfg.test_dataloader.dataset.pipeline = get_loading_pipeline(
-            cfg.train_dataloader.dataset.dataset.pipeline)
-    elif cfg.train_dataloader.dataset.type in ('ConcatDataset', ):
-        cfg.test_dataloader.dataset.pipeline = get_loading_pipeline(
-            cfg.train_dataloader.dataset.datasets[0].pipeline)
-    else:
-        cfg.test_dataloader.dataset.pipeline = get_loading_pipeline(
-            cfg.train_dataloader.dataset.pipeline)
-    dataset = DATASETS.build(cfg.test_dataloader.dataset)
+    # cfg.val_dataloader.pop('batch_size', 0)
+    # if cfg.train_dataloader.dataset.type in ('MultiImageMixDataset',
+    #                                          'ClassBalancedDataset',
+    #                                          'RepeatDataset'):
+    #     cfg.val_dataloader.dataset.pipeline = get_loading_pipeline(
+    #         cfg.train_dataloader.dataset.dataset.pipeline)
+    # elif cfg.train_dataloader.dataset.type in ('ConcatDataset', ):
+    #     cfg.val_dataloader.dataset.pipeline = get_loading_pipeline(
+    #         cfg.train_dataloader.dataset.datasets[0].pipeline)
+    # else:
+    #     cfg.val_dataloader.dataset.pipeline = get_loading_pipeline(
+    #         cfg.train_dataloader.dataset.pipeline)
+
+    cfg.val_dataloader.dataset.pipeline = get_loading_pipeline(cfg.val_dataloader.dataset.pipeline)
+    dataset = DATASETS.build(cfg.val_dataloader.dataset)
     outputs = load(args.prediction_path)
 
     cfg.work_dir = args.show_dir

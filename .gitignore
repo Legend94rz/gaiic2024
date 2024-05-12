@@ -13,3 +13,5 @@ wandb/
 *.png
 run.sh
 fusion.ipynb
+vis_val_results/
+*.zip

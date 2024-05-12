@@ -110,9 +110,9 @@ model = dict(
         start_level=0,
     ),
     test_cfg=dict(
-        max_per_img=100,
+        max_per_img=300,
         min_bbox_size=0,
-        nms=dict(iou_threshold=0.6, type='nms'),
+        nms=dict(iou_threshold=0.8, type='soft_nms'),
         nms_pre=1000,
         score_thr=0.05
     ),

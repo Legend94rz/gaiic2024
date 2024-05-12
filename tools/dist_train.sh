@@ -22,7 +22,7 @@
 export OMP_NUM_THREADS=1
 export PYTHONPATH=.
 nnode=2
-# cfg="projects/gaiic2014/configs/codetr_all_in_one.py"
-cfg="projects/gaiic2014/configs/glip_all_in_one.py"
+cfg="projects/gaiic2014/configs/codetr_all_in_one.py"
+# cfg="projects/gaiic2014/configs/glip_all_in_one.py"
 time=`date +"%Y%m%d_%H%M%S"`
 torchrun --nproc-per-node=${nnode} tools/train.py ${cfg} --launcher pytorch --work-dir ./work_dirs/`basename ${cfg} .py`/_${time}
