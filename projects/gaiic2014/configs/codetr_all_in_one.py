@@ -216,7 +216,6 @@ model = dict(
             use_sigmoid=True,
             loss_weight=1.0 * num_dec_layer * loss_lambda,
         ),  # 影响 loss_rpn_cls 一项
-        reg_decoded_bbox=False,
         loss_bbox=dict(type="L1Loss", loss_weight=1.0 * num_dec_layer * loss_lambda),   # 影响 loss_rpn_bbox 一项 [可改成GIOU等]
     ),
     roi_head=[
@@ -387,21 +386,6 @@ model = dict(
 )
 
 image_size = (640, 512)
-transform_broadcast = dict(
-    type="BugFreeTransformBroadcaster",
-    mapping={
-        "img": ["tir", "img"],
-        "img_shape": ["img_shape", "img_shape"],
-        "gt_bboxes": ['gt_bboxes', 'gt_bboxes'],
-        "gt_bboxes_labels": ['gt_bboxes_labels', 'gt_bboxes_labels'],
-        "gt_ignore_flags": ['gt_ignore_flags', 'gt_ignore_flags'],
-        "scale_factor": ['scale_factor', 'scale_factor'],
-        "flip": ["flip", "flip"],
-        "flip_direction": ["flip_direction", "flip_direction"],
-    },
-    auto_remap=True,
-    share_random_params=True,
-)
 train_pipeline = [
     dict(type="LoadImageFromFile"),
     dict(type="LoadTirFromPath"),
@@ -409,22 +393,29 @@ train_pipeline = [
     dict(type='AdaptiveHistEQU'),
     dict(type='RandomShiftOnlyImg', max_shift_px=10, prob=0.5),
     dict(
-        **transform_broadcast,
+        type="BugFreeTransformBroadcaster",
+        mapping={
+            "img": ["tir", "img"],
+            "img_shape": ["img_shape", "img_shape"],
+            "gt_bboxes": ['gt_bboxes', 'gt_bboxes'],
+            "gt_bboxes_labels": ['gt_bboxes_labels', 'gt_bboxes_labels'],
+            "gt_ignore_flags": ['gt_ignore_flags', 'gt_ignore_flags'],
+        },
+        auto_remap=True,
+        share_random_params=True,
         transforms=[
             dict(
-                type='RandomChoiceResize',
-                scales=[(480, 2048), (512, 2048), (544, 2048), (576, 2048),
-                        (608, 2048), (640, 2048), (672, 2048), (704, 2048),
-                        (736, 2048), (768, 2048), (800, 2048), (832, 2048),
-                        (864, 2048), (896, 2048), (928, 2048), (960, 2048),],
+                type='RandomResize',
+                scale=image_size,
+                ratio_range=(0.75, 1.5),
                 keep_ratio=True
             ),
             dict(
-                type='RandomSafeCrop',
+                type='RandomCrop',
                 crop_type='absolute',
                 crop_size=image_size,
-                allow_negative_crop=True,
-            ),
+                allow_negative_crop=False,
+            ), # NOTE: 目前它不会过滤掉因crop导致bbox可见区域过小的情况，对线上分数影响未知。
             dict(type='RandomFlip', prob=0.5),
             dict(type='Pad', size=image_size, pad_val=dict(img=(114, 114, 114))),
             # dict(type='Resize', scale=(640, 512)),
@@ -443,7 +434,7 @@ train_dataloader = dict(
         type=dataset_type,
         data_root=data_root,
         serialize_data=False,
-        ann_file="annotations/train.json",
+        ann_file="annotations/train_updated.json",
         data_prefix=dict(img_path="train/rgb", tir_path="train/tir"),
         # filter_cfg=dict(filter_empty_gt=False, min_size=32),
         pipeline=train_pipeline,
@@ -457,12 +448,19 @@ val_pipeline = [
     # dict(type='RandomShiftOnlyImg', max_shift_px=10, prob=0.5),
     dict(type='AdaptiveHistEQU'),
     dict(
-        **transform_broadcast,
+        type="BugFreeTransformBroadcaster",
+        mapping={
+            "img": ["tir", "img"],
+            "img_shape": ["img_shape", "img_shape"],
+            "gt_bboxes": ['gt_bboxes', 'gt_bboxes'],
+            "gt_bboxes_labels": ['gt_bboxes_labels', 'gt_bboxes_labels'],
+            "gt_ignore_flags": ['gt_ignore_flags', 'gt_ignore_flags'],
+            "scale_factor": ['scale_factor', 'scale_factor'],
+        },
+        auto_remap=True,
+        share_random_params=True,
         transforms=[
             dict(type='Resize', scale=(640, 512)),
-            # dict(type='Resize', scale=(720, 576), keep_ratio=True),
-            # dict(type='Resize', scale=(1333, 768), keep_ratio=True),
-            # dict(type='Resize', scale=(1333, 480), keep_ratio=True),
         ],
     ),
 
@@ -482,7 +480,7 @@ val_dataloader = dict(
         type=dataset_type,
         serialize_data=False,
         data_root=data_root,
-        ann_file="annotations/val.json",
+        ann_file="annotations/val_updated.json",
         data_prefix=dict(img_path="val/rgb", tir_path="val/tir"),
         # filter_cfg=dict(filter_empty_gt=False, min_size=32),
         pipeline=val_pipeline,
@@ -490,7 +488,7 @@ val_dataloader = dict(
 )
 val_evaluator = dict(
     type="CocoMetric",
-    ann_file=f"{data_root}/annotations/val.json",
+    ann_file=f"{data_root}/annotations/val_updated.json",
     metric="bbox",
     format_only=False,
     backend_args=backend_args,
