@@ -101,35 +101,37 @@ from tqdm import tqdm
 dataset_type = fo.types.COCODetectionDataset  # for example
 label_name = ('car', 'truck', 'bus', 'van', 'freight_car')
 workspace = '/home/renzhen/userdata/repo/gaiic2024'
+ds_name = "gaiic_val"
 
 if __name__ == "__main__":
-    # dataset = fo.Dataset.from_dir(
-    #     data_path=f'{workspace}/data/track1-A/train/rgb',
-    #     labels_path=f'{workspace}/data/track1-A/annotations/train_updated.json',
-    #     dataset_type=fo.types.COCODetectionDataset,
-    #     name='gaiic_train',
-    #     #max_samples=1000,
-    #     persistent=True
-    # )
-    dataset = fo.load_dataset("gaiic_train")
+    # fo.delete_dataset(ds_name)
+    dataset = fo.Dataset.from_dir(
+        data_path=f'{workspace}/data/track1-A/val/rgb',
+        labels_path=f'{workspace}/data/track1-A/annotations/val_updated.json',
+        dataset_type=fo.types.COCODetectionDataset,
+        name=ds_name,
+        #max_samples=1000,
+        persistent=True
+    )
+    # dataset = fo.load_dataset("gaiic_train")
 
-    # pred = pkl.load(open(f"{workspace}/work_dirs/codetr_all_in_one/_20240428_173223/epoch_10_submit.pkl", 'rb'))
-    # for x in tqdm(pred, desc='add predictions'):
-    #     inst = x['pred_instances']
-    #     sample = dataset[str( Path(workspace) / x['img_path'] )]
-    #     h, w = x['ori_shape']
-    #     wh = torch.tensor([w, h, w, h], dtype=torch.float)
+    pred = pkl.load(open(f"{workspace}/work_dirs/codetr_all_in_one/_20240512_180416/epoch_12.pkl", 'rb'))
+    for x in tqdm(pred, desc='add predictions'):
+        inst = x['pred_instances']
+        sample = dataset[str( Path(workspace) / x['img_path'] )]
+        h, w = x['ori_shape']
+        wh = torch.tensor([w, h, w, h], dtype=torch.float)
         
-    #     boxes = box_convert(inst['bboxes'], 'xyxy', 'xywh') / wh
+        boxes = box_convert(inst['bboxes'], 'xyxy', 'xywh') / wh
 
-    #     sample['prediction'] = fo.Detections(detections=[
-    #         fo.Detection(
-    #             label=label_name[inst['labels'][i].item()],
-    #             bounding_box=boxes[i].tolist(),
-    #             confidence=inst['scores'][i].item(),
-    #         ) for i in range(len(boxes))
-    #     ])
-    #     sample.save()
+        sample['prediction'] = fo.Detections(detections=[
+            fo.Detection(
+                label=label_name[inst['labels'][i].item()],
+                bounding_box=boxes[i].tolist(),
+                confidence=inst['scores'][i].item(),
+            ) for i in range(len(boxes))
+        ])
+        sample.save()
 
     session = fo.launch_app(dataset, remote=True)
     session.wait(-1)

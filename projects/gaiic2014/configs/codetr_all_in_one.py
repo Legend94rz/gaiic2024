@@ -421,7 +421,7 @@ train_pipeline = [
             # dict(type='Resize', scale=(640, 512)),
         ],
     ),
-
+    # dict(type="DualModalCutOut", n_holes=(2, 5), cutout_shape=[(32, 32), (64, 64), (96, 96), (128, 128), (160, 160)], fill_in=(128, 128, 128)),
     dict(type="CustomPackDetInputs"),
 ]
 
@@ -434,7 +434,7 @@ train_dataloader = dict(
         type=dataset_type,
         data_root=data_root,
         serialize_data=False,
-        ann_file="annotations/train_updated.json",
+        ann_file="annotations/train_0516.json",
         data_prefix=dict(img_path="train/rgb", tir_path="train/tir"),
         # filter_cfg=dict(filter_empty_gt=False, min_size=32),
         pipeline=train_pipeline,

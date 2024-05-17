@@ -14,6 +14,7 @@ def parse_args():
     parser.add_argument("-r", "--results", default='results.pkl', type=str)
     parser.add_argument("-o", "--output", default='pred.json', type=str)
     parser.add_argument("-t", "--threshold", default=0., type=float)
+    parser.add_argument('-d', "--remove_classes", nargs='*', default=[], type=int, help="The indexes will be removed when generate output json.")
     return parser.parse_args()
 
 
@@ -28,6 +29,7 @@ if __name__ == "__main__":
     results = pkl.load(open(args.results, 'rb'))
     with open(args.input) as fin:
         ijs = json.load(fin)
+    removed_classes = set(args.remove_classes)
 
     submit = []
     for single_img_res in results:
@@ -36,6 +38,8 @@ if __name__ == "__main__":
         cate = single_img_res['pred_instances']['labels']
         for i in range(len(score)):
             if score[i] > args.threshold:
+                if cate[i].item() + 1 in removed_classes:
+                    continue
                 x, y, w, h = bbox[i].tolist()
                 # if True:
                 if not ((w < 5 and (x<1 or x+w > 639)) or (h<5 and (y<1 or y+h > 511))):
