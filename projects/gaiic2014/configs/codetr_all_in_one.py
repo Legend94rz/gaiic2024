@@ -359,7 +359,7 @@ model = dict(
         dict(
             max_per_img=300,
             # NMS can improve the mAP by 0.2.
-            nms=dict(type="soft_nms", iou_threshold=0.8),
+            nms=dict(type="soft_nms", iou_threshold=0.7),
         ),
         dict(
             rpn=dict(
@@ -434,7 +434,7 @@ train_dataloader = dict(
         type=dataset_type,
         data_root=data_root,
         serialize_data=False,
-        ann_file="annotations/train_0516.json",
+        ann_file="annotations/train_0518.json",
         data_prefix=dict(img_path="train/rgb", tir_path="train/tir"),
         # filter_cfg=dict(filter_empty_gt=False, min_size=32),
         pipeline=train_pipeline,
