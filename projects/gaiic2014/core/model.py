@@ -7,19 +7,21 @@ from einops import rearrange
 import copy
 from torch import Tensor, nn
 
+from fairscale.nn.checkpoint import checkpoint_wrapper
 from mmcv.cnn.bricks.transformer import BaseTransformerLayer, build_transformer_layer
 from mmcv.ops.multi_scale_deform_attn import MultiScaleDeformableAttention, MultiScaleDeformableAttnFunction
-from mmdet.registry import MODELS
+from mmdet.registry import MODELS, TASK_UTILS
 from mmdet.structures import SampleList
-from mmdet.structures.bbox import bbox_xyxy_to_cxcywh
+from mmdet.structures.bbox import bbox_xyxy_to_cxcywh, bbox_cxcywh_to_xyxy
 from mmdet.models.utils.misc import samplelist_boxtype2tensor
 from mmdet.models.data_preprocessors.data_preprocessor import DetDataPreprocessor
 from mmdet.models.layers import inverse_sigmoid
+from mmdet.models.task_modules import BaseAssigner
 from mmdet.utils import OptConfigType
 from mmengine.model.utils import stack_batch
 from mmengine.model import BaseModule, constant_init, xavier_init
 from mmengine.model import BaseModule, ModuleList
-from fairscale.nn.checkpoint import checkpoint_wrapper
+from mmengine.structures import InstanceData
 from mmcv.cnn import build_norm_layer
 
 
@@ -507,6 +509,7 @@ class Sparse4Dv3QueryGenerator(BaseModule):
     def __init__(self,
                  num_classes: int,
                  embed_dims: int,
+                 assigner,
                  num_matching_queries: int,
                  label_noise_scale: float = 0.5,
                  box_noise_scale: float = 1.0,
@@ -537,6 +540,7 @@ class Sparse4Dv3QueryGenerator(BaseModule):
         # is not used in the original DINO.
         # TODO: num_classes + 1 or num_classes ?
         self.label_embedding = nn.Embedding(self.num_classes, self.embed_dims)
+        self.assigner :BaseAssigner = TASK_UTILS.build(assigner)
 
     def __call__(self, batch_data_samples: SampleList) -> tuple:
         """Generate contrastive denoising (cdn) queries with ground truth.
@@ -592,30 +596,29 @@ class Sparse4Dv3QueryGenerator(BaseModule):
             gt_bboxes_list.append(bboxes_normalized)
             gt_labels_list.append(sample.gt_instances.labels)
         gt_labels = torch.cat(gt_labels_list)  # (num_target_total, 4)
-        gt_bboxes = torch.cat(gt_bboxes_list)
+        gt_bboxes = torch.cat(gt_bboxes_list)   # xyxy
 
         num_target_list = [len(bboxes) for bboxes in gt_bboxes_list]
         max_num_target = max(num_target_list)
         num_groups = self.get_num_groups(max_num_target)
 
-        dn_label_query = self.generate_dn_label_query(gt_labels, num_groups)     # [num_target_total*2*#Group, dim]
-        dn_bbox_query = self.generate_dn_bbox_query(gt_bboxes, num_groups)       # [num_target_total*2*#Group, 4] (after inverse_sigmoid)
-
+        # 为当前batch生成dn query。后续转成[B, max_num_target, dim]后，训练时直接与正常query cat起来. 注意从这里开始与DINO实现不同。
+        dn_label_query = self.generate_dn_label_query(gt_labels, num_groups)     # [num_target_total*2*#Group, dim] . category labels
+        dn_bbox_query = self.generate_dn_bbox_query(gt_bboxes, num_groups)       # [num_target_total*2*#Group, 4] (after inverse_sigmoid), norm box [0, 1], cxcywh
+        
         # The `batch_idx` saves the batch index of the corresponding sample
         # for each target, has shape (num_target_total).
-        batch_idx = torch.cat([
-            torch.full_like(t.long(), i) for i, t in enumerate(gt_labels_list)
-        ])
-        dn_label_query, dn_bbox_query = self.collate_dn_queries(
-            dn_label_query, dn_bbox_query, batch_idx,
-            len(batch_data_samples), num_groups
+        dn_label_query, dn_bbox_query, assigned_idx = self.collate_dn_queries(
+            dn_label_query, dn_bbox_query, num_target_list, max_num_target,
+            batch_data_samples, num_groups
         )
 
         attn_mask = self.generate_dn_mask(max_num_target, num_groups, device=dn_label_query.device)
 
         dn_meta = dict(
             num_denoising_queries=int(max_num_target * 2 * num_groups),
-            num_denoising_groups=num_groups
+            num_denoising_groups=num_groups,
+            assigned_idx=assigned_idx
         )
 
         return dn_label_query, dn_bbox_query, attn_mask, dn_meta
@@ -687,8 +690,8 @@ class Sparse4Dv3QueryGenerator(BaseModule):
         chosen_indice = torch.nonzero(p < (self.label_noise_scale * 0.5)).view(-1)  # Note `* 0.5`
         new_labels = torch.randint_like(chosen_indice, 0, self.num_classes)
         noisy_labels_expand = gt_labels_expand.scatter(0, chosen_indice, new_labels)
-        dn_label_query = self.label_embedding(noisy_labels_expand)      # [num_noisy_targets] --Embedding--> [num_noisy_targets, embed_dims]
-        return dn_label_query
+        # dn_label_query = self.label_embedding(noisy_labels_expand)      # [num_noisy_targets] --Embedding--> [num_noisy_targets, embed_dims]
+        return noisy_labels_expand
 
     def generate_dn_bbox_query(self, gt_bboxes: Tensor,
                                num_groups: int) -> Tensor:
@@ -776,75 +779,50 @@ class Sparse4Dv3QueryGenerator(BaseModule):
         noisy_bboxes_expand = noisy_bboxes_expand.clamp(min=0.0, max=1.0)
         noisy_bboxes_expand = bbox_xyxy_to_cxcywh(noisy_bboxes_expand)
 
-        dn_bbox_query = inverse_sigmoid(noisy_bboxes_expand, eps=1e-3)
-        return dn_bbox_query
+        # dn_bbox_query = inverse_sigmoid(noisy_bboxes_expand, eps=1e-3)
+        return noisy_bboxes_expand
 
     def collate_dn_queries(self, input_label_query: Tensor,
-                           input_bbox_query: Tensor, batch_idx: Tensor,
-                           batch_size: int, num_groups: int) -> Tuple[Tensor]:
-        """Collate generated queries to obtain batched dn queries.
-
-        The strategy for query collation is as follow:
-
-        .. code:: text
-
-                    input_queries (num_target_total, query_dim)
-            P_A1 P_B1 P_B2 N_A1 N_B1 N_B2 P'A1 P'B1 P'B2 N'A1 N'B1 N'B2
-              |________ group1 ________|    |________ group2 ________|
-                                         |
-                                         V
-                      P_A1 Pad0 N_A1 Pad0 P'A1 Pad0 N'A1 Pad0
-                      P_B1 P_B2 N_B1 N_B2 P'B1 P'B2 N'B1 N'B2
-                       |____ group1 ____| |____ group2 ____|
-             batched_queries (batch_size, max_num_target, query_dim)
-
-            where query_dim is 4 for bbox and self.embed_dims for label.
-            Notation: _-group 1; '-group 2;
-                      A-Sample1(has 1 target); B-sample2(has 2 targets)
-
-        Args:
-            input_label_query (Tensor): The generated label queries of all
-                targets, has shape (num_target_total, embed_dims) where
-                `num_target_total = sum(num_target_list)`.
-            input_bbox_query (Tensor): The generated bbox queries of all
-                targets, has shape (num_target_total, 4) with the last
-                dimension arranged as (cx, cy, w, h).
-            batch_idx (Tensor): The batch index of the corresponding sample
-                for each target, has shape (num_target_total).
-            batch_size (int): The size of the input batch.
-            num_groups (int): The number of denoising query groups.
-
-        Returns:
-            tuple[Tensor]: Output batched label and bbox queries.
-            - batched_label_query (Tensor): The output batched label queries,
-              has shape (batch_size, max_num_target, embed_dims).
-            - batched_bbox_query (Tensor): The output batched bbox queries,
-              has shape (batch_size, max_num_target, 4) with the last dimension
-              arranged as (cx, cy, w, h).
+                           input_bbox_query: Tensor, num_target_list, max_num_target,
+                           batch_data_samples: SampleList, num_groups: int) -> Tuple[Tensor]:
         """
-        device = input_label_query.device
-        num_target_list = [
-            torch.sum(batch_idx == idx) for idx in range(batch_size)
-        ]
-        max_num_target = max(num_target_list)
-        num_denoising_queries = int(max_num_target * 2 * num_groups)
+        args:
+            input_label_query: [\sum num_target_list * 2 * #group, ]
+            input_bbox_query: [\sum num_target_list * 2 * #group, 4]
 
-        map_query_index = torch.cat([
-            torch.arange(num_target, device=device)
-            for num_target in num_target_list
-        ])
-        map_query_index = torch.cat([
-            map_query_index + max_num_target * i for i in range(2 * num_groups)
-        ]).long()
-        batch_idx_expand = batch_idx.repeat(2 * num_groups, 1).view(-1)
-        mapper = (batch_idx_expand, map_query_index)
+        returns:
+            dn_label_query: [b, max_t * 2 * #group, dim]. after label embedding.
+            dn_bbox_query:  [b, max_t * 2 * #group, 4]. after `inverse_sigmoid`
+            assigned_idx: LongTensor. [b, max_t*2*#group]. pad -1
+        """
+        batch_size = len(batch_data_samples)
+        dn_label_query = torch.zeros((batch_size, max_num_target * 2 * num_groups, self.embed_dims), device=input_label_query.device)
+        dn_bbox_query = torch.zeros((batch_size, max_num_target * 2 * num_groups, 4), device=input_bbox_query.device)
+        assigned_idx = torch.full((batch_size, max_num_target * 2 * num_groups), -1)
 
-        batched_label_query = torch.zeros(batch_size, num_denoising_queries, self.embed_dims, device=device)
-        batched_bbox_query = torch.zeros(batch_size, num_denoising_queries, 4, device=device)
-
-        batched_label_query[mapper] = input_label_query
-        batched_bbox_query[mapper] = input_bbox_query
-        return batched_label_query, batched_bbox_query
+        input_label_query = torch.chunk(input_label_query, num_groups)
+        input_bbox_query = torch.chunk(input_bbox_query, num_groups)
+        qsize = [x for x in num_target_list]*2
+        for i in range(num_groups):
+            # input_label_query[i]: 第i组的 正负query. [\sum num_target_list * 2, ]. 离散类别, [0, self.num_classes)
+            # input_bbox_query[i] : normed bbox [0, 1]. [\sum num_target_list * 2, 4] cxcywh
+            lq = torch.split(input_label_query[i], qsize)
+            bq = torch.split(input_bbox_query[i], qsize)
+            lq = [torch.cat([lq[j], lq[j+batch_size]]) for j in range(batch_size)]
+            bq = [torch.cat([bq[j], bq[j+batch_size]]) for j in range(batch_size)]
+            for j in range(batch_size):
+                img_h, img_w = batch_data_samples[j].img_shape
+                factor = bq[j].new_tensor([img_w, img_h, img_w, img_h]).unsqueeze(0)
+                cls_score = nn.functional.one_hot(lq[j], self.num_classes)
+                box_query = bbox_cxcywh_to_xyxy(bq[j]) * factor
+                pred_instances = InstanceData(scores=cls_score, bboxes=box_query)
+                assign = self.assigner.assign(pred_instances, batch_data_samples[j].gt_instances, batch_data_samples[j].metainfo)
+                gt_inds = assign.gt_inds  # 0 表示没匹配到的。 >0 表示匹配到的 gt_instances 索引+1. shape: (num_target_list[j] * 2)
+                k = max_num_target*2* i
+                dn_label_query[j, k: k + len(gt_inds)] = self.label_embedding(lq[j])
+                dn_bbox_query[j, k: k + len(gt_inds)] = inverse_sigmoid(bq[j], eps=1e-3)
+                assigned_idx[j, k: k + len(gt_inds)] = gt_inds.cpu()
+        return dn_label_query, dn_bbox_query, assigned_idx
 
     def generate_dn_mask(self, max_num_target: int, num_groups: int,
                          device: Union[torch.device, str]) -> Tensor:

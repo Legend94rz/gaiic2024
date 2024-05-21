@@ -121,6 +121,7 @@ model = dict(
         in_channels=2048,
         as_two_stage=True,
         dn_cfg=dict(
+            type="Sparse4Dv3QueryGenerator",
             label_noise_scale=0.5,
             box_noise_scale=0.4,
             group_cfg=dict(num_dn_queries=500),

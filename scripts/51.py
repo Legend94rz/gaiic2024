@@ -101,13 +101,14 @@ from tqdm import tqdm
 dataset_type = fo.types.COCODetectionDataset  # for example
 label_name = ('car', 'truck', 'bus', 'van', 'freight_car')
 workspace = '/home/renzhen/userdata/repo/gaiic2024'
-ds_name = "gaiic_val"
+ds_name = "gaiic_test"
 
 if __name__ == "__main__":
-    # fo.delete_dataset(ds_name)
+    if ds_name in fo.list_datasets():
+        fo.delete_dataset(ds_name)
     dataset = fo.Dataset.from_dir(
-        data_path=f'{workspace}/data/track1-A/val/rgb',
-        labels_path=f'{workspace}/data/track1-A/annotations/val_updated.json',
+        data_path=f'{workspace}/data/track1-A/test/rgb',
+        labels_path=f'{workspace}/data/track1-A/annotations/test.json',
         dataset_type=fo.types.COCODetectionDataset,
         name=ds_name,
         #max_samples=1000,
@@ -115,9 +116,10 @@ if __name__ == "__main__":
     )
     # dataset = fo.load_dataset("gaiic_train")
 
-    pred = pkl.load(open(f"{workspace}/work_dirs/codetr_all_in_one/_20240512_180416/epoch_12.pkl", 'rb'))
+    pred = pkl.load(open(f"{workspace}/work_dirs/codetr_all_in_one/_20240520_153439/epoch_10_submit.pkl", 'rb'))
     for x in tqdm(pred, desc='add predictions'):
         inst = x['pred_instances']
+        # sample = dataset[str( Path(workspace) / x['img_path'] ).replace('rgb', 'tir')]
         sample = dataset[str( Path(workspace) / x['img_path'] )]
         h, w = x['ori_shape']
         wh = torch.tensor([w, h, w, h], dtype=torch.float)

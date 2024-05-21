@@ -1,6 +1,6 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 import copy
-from typing import List
+from typing import List, Dict
 
 import torch
 import torch.nn as nn
@@ -104,7 +104,8 @@ class CoDINOHead(DINOHead):
             dn_cfg['num_classes'] = self.num_classes
             dn_cfg['num_matching_queries'] = self.num_query
             dn_cfg['embed_dims'] = self.embed_dims
-        self.dn_generator = CdnQueryGenerator(**dn_cfg)
+            dn_cfg['assigner'] = self.train_cfg['assigner']
+        self.dn_generator = MODELS.build(dn_cfg)
 
     def forward(self,
                 mlvl_feats,
@@ -676,3 +677,46 @@ class CoDINOHead(DINOHead):
         loss_bbox = self.loss_bbox(
             bbox_preds, bbox_targets, bbox_weights, avg_factor=num_total_pos)
         return loss_cls, loss_bbox, loss_iou
+
+    def get_dn_targets(self, batch_gt_instances: List[InstanceData], batch_img_metas: dict, dn_meta: torch.Dict[str, int]) -> tuple:
+        (labels_list, label_weights_list, bbox_targets_list, bbox_weights_list, npos, nneg) = multi_apply(
+            self._get_dn_targets_single,
+            batch_gt_instances,
+            batch_img_metas,
+            dn_meta['assigned_idx'],
+            dn_meta=dn_meta
+        )
+        num_total_pos = sum(npos)
+        num_total_neg = sum(nneg)
+        return labels_list, label_weights_list, bbox_targets_list, bbox_weights_list, num_total_pos, num_total_neg
+    
+    def _get_dn_targets_single(self, gt_instances: InstanceData, img_meta: dict, assigned_idx, dn_meta: Dict[str, int]) -> tuple:
+        # assigned_idx: [num_denoising_queries, ]. -1: pad, 0: neg. >0: gt_inst index(+1)
+        gt_bboxes = gt_instances.bboxes
+        gt_labels = gt_instances.labels
+        num_denoising_queries = dn_meta['num_denoising_queries']
+        device = gt_bboxes.device
+
+        pos = assigned_idx > 0
+        neg = assigned_idx == 0
+
+        # label targets
+        labels = gt_bboxes.new_full((num_denoising_queries, ), self.num_classes, dtype=torch.long)
+        labels[pos] = gt_labels[assigned_idx[pos] - 1]
+        label_weights = gt_bboxes.new_ones(num_denoising_queries)
+
+        # bbox targets
+        bbox_targets = torch.zeros(num_denoising_queries, 4, device=device)
+        bbox_weights = torch.zeros(num_denoising_queries, 4, device=device)
+        bbox_weights[pos] = 1.0
+        img_h, img_w = img_meta['img_shape']
+
+        # DETR regress the relative position of boxes (cxcywh) in the image.
+        # Thus the learning target should be normalized by the image size, also
+        # the box format should be converted from defaultly x1y1x2y2 to cxcywh.
+        factor = gt_bboxes.new_tensor([img_w, img_h, img_w, img_h]).unsqueeze(0)
+        gt_bboxes_normalized = gt_bboxes / factor
+        gt_bboxes_targets = bbox_xyxy_to_cxcywh(gt_bboxes_normalized)
+        bbox_targets[pos] = gt_bboxes_targets[assigned_idx[pos] - 1]
+
+        return (labels, label_weights, bbox_targets, bbox_weights, pos.sum(), neg.sum())

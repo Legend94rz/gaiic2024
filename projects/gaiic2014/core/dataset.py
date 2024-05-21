@@ -17,7 +17,7 @@ from mmdet.datasets import CocoDataset, MultiImageMixDataset, BaseDetDataset
 from mmdet.datasets.api_wrappers import COCO
 from mmdet.registry import DATASETS, MODELS
 from mmdet.structures.bbox import HorizontalBoxes, autocast_box_type
-from mmdet.datasets.transforms import Resize, RandomCrop, Mosaic, PackDetInputs, MixUp, PhotoMetricDistortion, RandomFlip, CutOut
+from mmdet.datasets.transforms import Resize, RandomCrop, Mosaic, PackDetInputs, MixUp, PhotoMetricDistortion, RandomFlip, CutOut, RandomAffine
 from mmdet.models.utils.misc import samplelist_boxtype2tensor
 from mmdet.models.data_preprocessors.data_preprocessor import DetDataPreprocessor
 
@@ -847,7 +847,8 @@ class GAIIC2014DatasetV2(CocoDataset):
         """
         data_info = self.get_data_info(idx)
         data_info['dataset'] = self
+        return self.pipeline(data_info)
         try:
-            return self.pipeline(data_info)
+            pass
         except Exception as e:
             return None
