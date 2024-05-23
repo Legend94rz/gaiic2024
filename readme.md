@@ -81,7 +81,7 @@ conf-thres=0    多模态+lrsch+shift+autocontrast: 16 epoch               线�
                 多模态+lrsch+shift+AdaptiveHistEQU+swa+concat deform attn: 14epoch max14e  线上 0.45142205638384225 (0.650) 
 
 _20240428_173223:
-    **多模态, const lr + cos annealing, 10/13epoch, randshift+AdaptiveHistEQU+swa+concat deform attn: 线上 0.4901899498048514 (0.644 0.866 0.769 0.322 0.647 0.831)** tta 0.4683023883758988 可能参数没调好，需要检查下结果，并且tta可能超时(1h)
+    **多模态, const lr + cos annealing, 10/13epoch, randshift+AdaptiveHistEQU+swa+concat deform attn: 线上 0.4901899498048514 (0.644 0.866 0.769 0.322 0.647 0.831)** tta 0.4683023883758988 可能参数没调好，需要检查下结果，并且tta可能超时(1h) truck 线上: 0.454919137353518
     多模态, const lr + cos annealing, 13/13epoch, randshift+AdaptiveHistEQU+swa+concat deform attn: 线上 0.4892719064102989 (0.647 0.868 0.770 0.324 0.650 0.835)
 
 _20240502_114151
@@ -157,6 +157,10 @@ _20240520_153439
     Sparse4D Denoise Query
     10/13 epoch 线上 0.5188770992686201 (0.618 0.830 0.738 0.318 0.623 0.682)
     12/13 epoch 线上 0.5189131837830901 (0.620 0.832 0.742 0.320 0.624 0.686)
+
+_20240521_223415
+    基于 _20240520_153439 MultiInputMosaic
+    10/13 epoch 线上 0.4801529305281125 (0.600 0.810 0.719 0.219 0.606 0.679)
 
 
 ## TODO
