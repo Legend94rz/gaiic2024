@@ -404,13 +404,8 @@ transform_broadcast = dict(
 )
 train_pipeline = [
     dict(
-        type='MultiInputMosaic',
-        keys=['img', 'tir'],
-        prob=1.0,
-        img_scale=image_size,
-        center_ratio_range=(0.5, 1.05), 
-        pad_val=114.0,
-        bbox_clip_border=True,
+        type='MultiInputMixPadding',
+        keys=['img', 'tir'], size=image_size, block_if_below=0.5, pad_val=(114, 114, 114),
         individual_pipeline=[
             dict(type="LoadImageFromFile"),
             dict(type="LoadTirFromPath"),
@@ -418,38 +413,29 @@ train_pipeline = [
             dict(type='AdaptiveHistEQU'),
             dict(type='RandomShiftOnlyImg', max_shift_px=10, prob=0.5),
             dict(**transform_broadcast, transforms=[
+                dict(
+                    type='RandomResize',
+                    scale=image_size,
+                    ratio_range=(0.7, 1.5),
+                    keep_ratio=True
+                ),
+                dict(
+                    type='RandomCrop',
+                    crop_type='absolute',
+                    crop_size=image_size,
+                    allow_negative_crop=False,
+                ),
             #    dict(type='Rotate', prob=0.9, min_mag=90., max_mag=90.),
-               dict(type='RandomFlip', prob=0.5, direction=['horizontal', 'vertical', 'diagonal']),
+                dict(type='RandomFlip', prob=0.5, direction=['horizontal', 'vertical', 'diagonal']),
             ])
         ]
     ),
-    dict(
-        **transform_broadcast,
-        transforms=[
-            dict(
-                type='RandomAffine',
-                scaling_ratio_range=(0.75, 1.5),
-                max_translate_ratio=0.1,
-                max_rotate_degree=0,
-                max_shear_degree=0,
-                border=(-image_size[0] // 2, -image_size[1] // 2)
-            ),
-            dict(
-                type='RandomResize',
-                scale=image_size,
-                ratio_range=(0.8, 1.2),
-                keep_ratio=True
-            ),
-            dict(type='Pad', size_divisor=32, pad_val=dict(img=(114, 114, 114))),
-        ],
-    ),
-    dict(type='FilterAnnotations', min_gt_bbox_wh=(3, 3), keep_empty=False),
     # dict(type='Normalize', mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True),
     dict(type="CustomPackDetInputs"),
 ]
 
 train_dataloader = dict(
-    batch_size=2,
+    batch_size=3,
     num_workers=16,
     prefetch_factor=4,
     sampler=dict(type="DefaultSampler", shuffle=True),
