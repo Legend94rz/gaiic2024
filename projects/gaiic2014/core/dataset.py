@@ -6,7 +6,7 @@ import numpy as np
 import torch
 import random
 import cv2
-from torchvision.ops import box_iou
+from torchvision.ops import box_iou, box_convert
 
 import mmcv
 from mmcv.transforms import BaseTransform, LoadImageFromFile, RandomFlip, RandomResize, TransformBroadcaster, Normalize, Pad, LoadAnnotations, Normalize, RandomChoice, RandomChoiceResize
@@ -49,6 +49,10 @@ Resize(RGBT) to slightly larger
 TTA: [Color / HSV / bright / Contrast etc.]
 
 """
+
+def replace_2dmat_value_at(src, loc, des):
+    # print(f"{src.shape}, {des.shape}, {loc}, {src[loc[0]: loc[0]+des.shape[0], loc[1]: loc[1] + des.shape[1]].shape}")
+    src[loc[0]: loc[0]+des.shape[0], loc[1]: loc[1] + des.shape[1]] = des
 
 
 @TRANSFORMS.register_module()
@@ -773,6 +777,184 @@ class DualModalCutOut(BaseTransform):
         return results
 
 
+@TRANSFORMS.register_module()
+class MultiInputMixPadding(BaseTransform):
+    def __init__(self, keys=['img', 'tir'], individual_pipeline=[], size: Optional[Tuple[int, int]] = None, block_if_below=0.5, pad_val=(114, 114, 114)):
+        super().__init__()
+        self.keys = keys
+        self.individual_pipeline = Compose(individual_pipeline)
+        self.size = size
+        self.block_if_below = block_if_below
+        self.pad_val = pad_val
+
+    def get_params(self, w, h, n):
+        d = np.random.choice(['tl', 'tr', 'bl', 'br'])
+        hpad = (self.size[0], self.size[1] - h)
+        vpad = (self.size[0] - w, h)
+        idx = np.random.choice(n, 2)
+        return d, [hpad, vpad], idx
+
+    def crop_and_mute(self, results, offset, crop_size):
+        """
+        require:
+            - 
+            - gt_bboxes (BaseBoxes[torch.float32]) (optional)
+            - gt_bboxes_labels (np.int64) (optional)
+        
+        modify:
+            - {keys}
+            - gt_bboxes (optional)
+            - gt_bboxes_labels (optional)
+        """
+        ret = {}
+        shape = crop_size[::-1]
+        for k in self.keys:
+            img = results[k]
+            ret[k] = img[offset[1]: offset[1] + crop_size[1], offset[0]: offset[0] + crop_size[0]]
+        bboxes = results['gt_bboxes']
+        bboxes.translate_([-offset[0], -offset[1]])
+        origin_area = bboxes.areas
+        bboxes.clip_(shape)
+        inside = bboxes.is_inside(shape)
+        after_area = bboxes.areas
+        below_thres = after_area / origin_area < self.block_if_below
+        need_blocked = inside & below_thres
+        valid_inds = inside & (~below_thres)
+
+        may_affected = (box_iou(bboxes[valid_inds].tensor, bboxes[need_blocked].tensor) > 0.1).any(1)
+        bkps = {key: ret[key].copy() for key in self.keys}
+        for x1, y1, x2, y2 in bboxes[need_blocked].numpy().astype(int):
+            for key in self.keys:
+                ret[key][y1: y2, x1: x2] = 0
+        for x1, y1, x2, y2 in bboxes[valid_inds][may_affected].numpy().astype(int):
+            for key in self.keys:
+                ret[key][y1: y2, x1: x2] = bkps[key][y1: y2, x1: x2]
+        del bkps
+
+        ret['gt_bboxes'] = bboxes[valid_inds]
+        ret['gt_bboxes_labels'] = results['gt_bboxes_labels'][valid_inds]
+        return ret
+
+    def get_offset(self, input_shape, crop_size):
+        crop_size = (
+            min(crop_size[0], input_shape[1]),
+            min(crop_size[1], input_shape[0])
+        )
+        ox = np.random.randint(0, input_shape[1] - crop_size[0] + 1)
+        oy = np.random.randint(0, input_shape[0] - crop_size[1] + 1)
+        return (ox, oy), crop_size
+
+    def transform(self, results: Dict) -> Dict | Tuple[List] | None:
+        dataset = results.pop('dataset')
+        results = self.individual_pipeline(results)
+        h, w = results['img'].shape[:2]
+        if w < self.size[0] or h < self.size[1]:
+            d, pad, idx = self.get_params(w, h, len(dataset))
+            # print(d)
+            
+            sub_results = [self.individual_pipeline(dataset.get_data_info(i)) for i in idx]
+            for i in range(len(idx)):
+                offset, size = self.get_offset(sub_results[i]['img'].shape[:2], pad[i])
+                sub_results[i] = self.crop_and_mute(sub_results[i], offset, size)
+            for k in self.keys:
+                img = np.full((*self.size[::-1], 3), self.pad_val, dtype=results[k].dtype)
+                if d == 'tl':
+                    replace_2dmat_value_at(img, (0, 0), results[k])
+                    replace_2dmat_value_at(img, (h, 0), sub_results[0][k])
+                    replace_2dmat_value_at(img, (0, w), sub_results[1][k])
+                elif d == 'tr':
+                    replace_2dmat_value_at(img, (0, pad[1][0]), results[k])
+                    replace_2dmat_value_at(img, (h, 0), sub_results[0][k])
+                    replace_2dmat_value_at(img, (0, 0), sub_results[1][k])
+                elif d == 'bl':
+                    replace_2dmat_value_at(img, (pad[0][1], 0), results[k])
+                    replace_2dmat_value_at(img, (0, 0), sub_results[0][k])
+                    replace_2dmat_value_at(img, (pad[0][1], w), sub_results[1][k])
+                else:
+                    replace_2dmat_value_at(img, (pad[0][1], pad[1][0]), results[k])
+                    replace_2dmat_value_at(img, (0, 0), sub_results[0][k])
+                    replace_2dmat_value_at(img, (pad[0][1], 0), sub_results[1][k])
+                results[k] = img
+            if d == 'tl':
+                sub_results[0]['gt_bboxes'].translate_([0, h])
+                sub_results[1]['gt_bboxes'].translate_([w, 0])
+            elif d == 'tr':
+                sub_results[0]['gt_bboxes'].translate_([0, h])
+                results['gt_bboxes'].translate_([pad[1][0], 0])
+            elif d == 'bl':
+                results['gt_bboxes'].translate_([0, pad[0][1]])
+                sub_results[1]['gt_bboxes'].translate_([w, pad[0][1]])
+            else:
+                results['gt_bboxes'].translate_([pad[1][0], pad[0][1]])
+                sub_results[1]['gt_bboxes'].translate_([0, pad[0][1]])
+            results['gt_bboxes'] = results['gt_bboxes'].cat([
+                results['gt_bboxes'],
+                sub_results[0]['gt_bboxes'],
+                sub_results[1]['gt_bboxes']
+            ], 0)
+            results['gt_bboxes_labels'] = np.concatenate([
+                results['gt_bboxes_labels'],
+                sub_results[0]['gt_bboxes_labels'],
+                sub_results[1]['gt_bboxes_labels']
+            ], axis=0)
+
+        results['dataset'] = dataset
+        return results
+
+
+@TRANSFORMS.register_module()
+class RandomRotate90(BaseTransform):
+    def __init__(self, prob=0.5, dir=['l', 'r']):
+        """
+        Required Keys:
+
+        - img
+        - gt_bboxes (BaseBoxes[torch.float32]) (optional)
+
+        Modified Keys:
+
+        - img
+        - img_shape
+        - gt_bboxes (optional)
+        """
+        super().__init__()
+        self.prob = prob
+        self.dir = dir
+
+    @cache_randomness
+    def get_params(self):
+        p = np.random.random()
+        d = np.random.choice(self.dir)
+        return p, d
+    
+    def transform(self, results: Dict) -> Dict | Tuple[List] | None:
+        p, d = self.get_params()
+        if p < self.prob:
+            ax = (0, 1)
+            if d == 'l':
+                k = 1
+            else:
+                k = -1
+            results['img'] = np.rot90(results['img'], k, ax)
+            shape = results['img'].shape[:2]
+            results['img_shape'] = shape
+            if 'gt_bboxes' in results:
+                boxes = results['gt_bboxes'].cxcywh
+                if d == 'l':
+                    xy = torch.cat([
+                        boxes[:, 1:2],
+                        shape[0] - boxes[:, 0:1]
+                    ], axis=1)
+                else:
+                    xy = torch.cat([
+                        shape[1] - boxes[:, 1:2],
+                        boxes[:, 0:1]
+                    ], axis=1)
+
+                results['gt_bboxes'] = HorizontalBoxes(torch.cat([xy, boxes[:, [3, 2]]], axis=1), in_mode='cxcywh')
+        return results
+
+
 @DATASETS.register_module()
 class GAIIC2014DatasetV2(CocoDataset):
     METAINFO = {
@@ -847,8 +1029,7 @@ class GAIIC2014DatasetV2(CocoDataset):
         """
         data_info = self.get_data_info(idx)
         data_info['dataset'] = self
-        return self.pipeline(data_info)
         try:
-            pass
+            return self.pipeline(data_info)
         except Exception as e:
             return None
