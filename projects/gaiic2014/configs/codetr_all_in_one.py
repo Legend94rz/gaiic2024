@@ -402,7 +402,40 @@ transform_broadcast = dict(
     auto_remap=True,
     share_random_params=True,
 )
-train_pipeline = [
+
+train_pipeline_stage1 = [
+    dict(
+        type='MultiInputMixPadding',
+        keys=['img', 'tir'], size=image_size, block_if_below=0.5, pad_val=(114, 114, 114),
+        individual_pipeline=[
+            dict(type="LoadImageFromFile"),
+            dict(type="LoadTirFromPath"),
+            dict(type="LoadAnnotations", with_bbox=True),
+            dict(type='AdaptiveHistEQU'),
+            dict(type='RandomShiftOnlyImg', max_shift_px=10, prob=0.5),
+            dict(**transform_broadcast, transforms=[
+                dict(
+                    type='RandomResize',
+                    scale=image_size,
+                    ratio_range=(0.7, 1.5),
+                    keep_ratio=True
+                ),
+                dict(
+                    type='RandomCrop',
+                    crop_type='absolute',
+                    crop_size=image_size,
+                    allow_negative_crop=False,
+                ),
+            #    dict(type='Rotate', prob=0.9, min_mag=90., max_mag=90.),
+                dict(type='RandomFlip', prob=0.5, direction=['horizontal', 'vertical', 'diagonal']),
+            ])
+        ]
+    ),
+    # dict(type='Normalize', mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True),
+    dict(type="CustomPackDetInputs"),
+]
+
+train_pipeline_stage2 = [
     dict(type="LoadImageFromFile"),
     dict(type="LoadTirFromPath"),
     dict(type="LoadAnnotations", with_bbox=True),
@@ -442,8 +475,16 @@ train_dataloader = dict(
         ann_file="annotations/train_0527.json",
         data_prefix=dict(img_path="train/rgb", tir_path="train/tir"),
         # filter_cfg=dict(filter_empty_gt=False, min_size=32),
-        pipeline=train_pipeline,
+        pipeline=train_pipeline_stage1,
     ),
+)
+default_hooks = dict(
+    **default_hooks,
+    switch=dict(
+        type='PipelineSwitchHook',
+        switch_epoch=7,
+        switch_pipeline=train_pipeline_stage2
+    )
 )
 
 val_pipeline = [
