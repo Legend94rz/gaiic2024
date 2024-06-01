@@ -34,7 +34,6 @@ def parse_args():
     parser.add_argument(
         '--cfg-options',
         nargs='+',
-        action=DictAction,
         help='override some settings in the used config, the key-value pair '
         'in xxx=yyy format will be merged into config file. If the value to '
         'be overwritten is a list, it should be like key="[a,b]" or key=a,b '
@@ -53,7 +52,13 @@ def parse_args():
     args = parser.parse_args()
     if 'LOCAL_RANK' not in os.environ:
         os.environ['LOCAL_RANK'] = str(args.local_rank)
-
+    if args.cfg_options:
+        options = {}
+        for kv in args.cfg_options:
+            key, val = kv.split('=', maxsplit=1)
+            print(key, "---", val)
+            options[key] = eval(val)
+        args.cfg_options = options
     return args
 
 
