@@ -9,6 +9,7 @@ import numpy as np
 from torchvision.ops import box_convert, box_iou
 import torch
 import copy
+from pathlib import Path
 from ensemble_boxes import weighted_boxes_fusion, weighted_boxes_fusion_experimental
 
 
@@ -85,7 +86,17 @@ def ensemble_v2(preds, skip_thres, nms_thres):
         'labels': labels.astype(int),
         'scores': scores
     }
-    
+
+
+def coco_map(anno, res):
+    cocoDt = anno.loadRes(res)
+    cocoEval = COCOeval(anno, cocoDt, "bbox")
+    cocoEval.params.maxDets = [300, 300, 300]
+    cocoEval.evaluate()
+    cocoEval.accumulate()
+    cocoEval.summarize()
+    return cocoEval.stats[:6]
+
 
 """
 # val:
@@ -107,18 +118,24 @@ if __name__ == "__main__":
     all_preds = [read_pred(f) for f in args.pred_pkls]
     with open(args.pred_pkls[0], 'rb') as fin:
         bkp = pkl.load(fin)
+    output_dir = None
+    if args.output:
+        output_dir = Path(args.output)
+        output_dir.mkdir(parents=True, exist_ok=True)
 
     anno = None
     if args.annotation:
         anno = COCO(args.annotation)
         for i in range(len(all_preds)):
+            pred = to_std_format(all_preds[i])
             p, r, ap, f1 = map_score(
                 anno,
-                to_std_format(all_preds[i]),
+                pred,
                 plot=False, unique_classes=np.array(range(5)), save_dir='confusion_mat', names=('car', 'truck', 'bus', 'van', 'freight_car')
             )
+            stats = coco_map(anno, pred)
             print(f'======{args.pred_pkls[i]}=======')
-            print(ap.mean(1), ap.mean())
+            print(ap.mean(1), ap.mean(), stats)
             print('==============================')
             
     all_img_id = set.union(*[set(x.keys()) for x in all_preds])
@@ -130,12 +147,10 @@ if __name__ == "__main__":
     opt_score = 0
     opt_cfg = None
     records = []
-    # for skip_thres in np.arange(0.01, 0.51, 0.02):
-    #     for nms_thres in np.arange(0.5, 0.91, 0.05):
-    for skip_thres in [0.05]:
-        for nms_thres in [0.7]:
-            # skip_thres = 0.35
-            # nms_thres = 0.7
+    # for skip_thres in np.arange(0.02, 0.15, 0.01):
+        # for nms_thres in np.arange(0.6, 0.96, 0.05):
+    for skip_thres in [0.07]:
+        for nms_thres in [0.75]:
             final_res = to_std_format({k: ensemble_v2(preds, skip_thres, nms_thres) for k, preds in all_preds.items()})
             if anno is not None:
                 p, r, ap, f1 = map_score(
@@ -143,20 +158,22 @@ if __name__ == "__main__":
                     final_res,
                     plot=False, unique_classes=np.array(range(5)), save_dir='confusion_mat', names=('car', 'truck', 'bus', 'van', 'freight_car')
                 )
+                stats = coco_map(anno, final_res)
                 print('==============================')
                 print(f"the score under setting: skip_thres={skip_thres}, nms_thres={nms_thres} is:")
-                print(ap.mean(1), ap.mean())
-                records.append([skip_thres, nms_thres, ap.mean()])
+                print(ap.mean(1), ap.mean(), stats)
+                records.append([skip_thres, nms_thres, ap.mean(), *stats])
                 if opt_score < ap.mean():
                     opt_score = ap.mean()
                     opt_cfg = [skip_thres, nms_thres]
                 print('==============================')
     if opt_cfg is not None:
         print(f"{opt_cfg}: {opt_score}")
-        # pd.DataFrame(records, columns=['skip_thres', 'nms_thres', 'score']).to_csv('grid.csv', index=False)
-
+        if output_dir:
+            pd.DataFrame(records, columns=['skip_thres', 'nms_thres', 'score'] + [f'coco_{j}' for j in range(6)]).to_csv(output_dir / 'grid_search.csv', index=False)
+        skip_thres, nms_thres = opt_cfg
     res_per_img = {k: ensemble_v2(preds, skip_thres, nms_thres) for k, preds in all_preds.items()}
-    if args.output:
+    if output_dir:
         for i in range(len(bkp)):
             v = res_per_img[bkp[i]['img_id']]
             idx = np.argsort(-v['scores'])
@@ -165,17 +182,12 @@ if __name__ == "__main__":
                 'labels': torch.tensor(v['labels'][idx]),
                 'scores': torch.tensor(v['scores'][idx]),
             }
-        with open(args.output, 'wb') as fout:
+        with open(output_dir / "ensemble.pkl", 'wb') as fout:
             pkl.dump(bkp, fout)
-            print(f"output pkl saves to: {args.output}")
+            print(f"output pkl saves to: {args.output}, using cfg: {opt_cfg}")
             
     print(f'max #box: {max( len(x["labels"]) for x in res_per_img.values() )}')
     if anno is not None:
         # double-check using COCO API:
         final_res = to_std_format(res_per_img)
-        cocoDt = anno.loadRes(final_res)
-        cocoEval = COCOeval(anno, cocoDt, "bbox")
-        cocoEval.params.maxDets = [300, 300, 300]
-        cocoEval.evaluate()
-        cocoEval.accumulate()
-        cocoEval.summarize()
+        coco_map(anno, final_res)

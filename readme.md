@@ -197,6 +197,7 @@ _20240530_092722 (mean_fuse)
 _20240531_141605_fold_x
     基于 _20240528_194827
     fold0: 12epoch 线上 0.5190668677895692 (val_0527 0.666 0.898 0.803 0.330 0.668 0.863)
+           10 epoch 线上 0.5170592197953877(=0.1788830576050569 + 0.3381761621903308) (val_0527 0.664 0.896 0.800 0.307 0.666 0.862)
 
 20240601
     ensemble:
@@ -204,6 +205,42 @@ _20240531_141605_fold_x
     skip/nms = 0.05/0.7
     线下大概 0.6838240481705212 or (0.674291 0.902451 0.811669 0.350855 0.675636 0.865489)
     线上0.5316742459794518
+
+    skip/nms = 0.11/0.65
+    线下大概 0.6930203193886105 or (0.673144 0.901855 0.810492 0.350491 0.674765 0.863098) 
+    线上 0.5286825228260283. 可能还是COCO的准
+
+20240602
+    ensemble:
+    skip/nms = 0.07/0.8
+    work_dirs/mean_fuse/_20240530_092722/epoch_11_submit.pkl \
+    work_dirs/codetr_all_in_one/_20240531_141605_fold_0/epoch_12_submit.pkl \
+    work_dirs/codetr_all_in_one/_20240528_194827/epoch_10_submit.pkl \
+    work_dirs/codetr_all_in_one/_20240520_153439/epoch_12_submit.pkl \
+    work_dirs/codetr_all_in_one/_20240531_141605_fold_1/epoch_11_submit.pkl \
+    线下大概 0.687434782 or (0.676031864	0.90358325	0.815278186	0.353419017	0.677676455	0.865931577)
+    线上 0.534338450353712
+
+    线下 0.690895491 or (0.675792044	0.904133767	0.81357435	0.353456609	0.677401048	0.864757538)
+    线上 0.5330973930313206
+
+
+20240603
+    ensemble:
+    0.07/0.75
+    ```
+    python scripts/ensemble.py -p \
+        work_dirs/codetr_all_in_one/_20240520_153439/epoch_12_submit.pkl \
+        work_dirs/codetr_all_in_one/_20240528_194827/epoch_10_submit.pkl \
+        work_dirs/mean_fuse/_20240530_092722/epoch_11_submit.pkl \
+        work_dirs/codetr_all_in_one/_20240531_141605_fold_0/epoch_12_submit.pkl \
+        work_dirs/codetr_all_in_one/_20240531_141605_fold_1/epoch_12_submit.pkl \
+        work_dirs/codetr_all_in_one/_20240531_141605_fold_2/epoch_12_submit.pkl \
+        -o ensemble_exp/submit_`date +"%m%d_%H%M%S"`
+    ```
+    线下大概 0.688424174 (0.677093871	0.905373239	0.816539492	0.352021417	0.678945491	0.864768281)
+    线上 0.5344882749788099
+    
 
 ## TODO
 conf-thres=0    mosaic + 多模态: 1epoch     线上 ?
