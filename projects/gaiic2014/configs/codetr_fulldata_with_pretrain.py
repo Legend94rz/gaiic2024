@@ -48,10 +48,9 @@ num_dec_layer = 6
 loss_lambda = 2.0
 num_classes = 5
 dataset_type = "GAIIC2014DatasetV2"
-data_root = "data/sample_data/"
+data_root = "data/track1-A/"
 pretrained = "ckpt/swin_large_patch4_window12_384_22k.pth"
-load_from = "ckpt/co_dino_5scale_swin_large_16e_o365tococo-614254c9_patched.pth"
-# load_from = "ckpt/co_dino_5scale_swin_large_16e_o365tococo-614254c9.pth"
+load_from = "ckpt/codino_pretrained_240607_epoch10_patched.pth"
 
 # image_size = (1024, 1024)
 # batch_augments = [
@@ -81,7 +80,7 @@ model = dict(
         out_indices=(0, 1, 2, 3),
         # Please only add indices that would be used
         # in FPN, otherwise some parameter will not be used
-        with_cp=True,
+        with_cp=False,
         convert_weights=True,
         init_cfg=dict(type="Pretrained", checkpoint=pretrained),
     ),
@@ -464,7 +463,7 @@ train_pipeline_stage2 = [
 ]
 
 train_dataloader = dict(
-    batch_size=1,
+    batch_size=3,
     num_workers=16,
     prefetch_factor=4,
     sampler=dict(type="DefaultSampler", shuffle=True),
@@ -472,7 +471,7 @@ train_dataloader = dict(
         type=dataset_type,
         data_root=data_root,
         serialize_data=False,
-        ann_file="annotations/fold_0_train.json",
+        ann_file="annotations/train_0527.json",
         data_prefix=dict(img_path="train/rgb", tir_path="train/tir"),
         # filter_cfg=dict(filter_empty_gt=False, min_size=32),
         pipeline=train_pipeline_stage1,
@@ -526,22 +525,47 @@ val_dataloader = dict(
         type=dataset_type,
         serialize_data=False,
         data_root=data_root,
-        ann_file="annotations/fold_0_val.json",
-        data_prefix=dict(img_path="train/rgb", tir_path="train/tir"),
+        ann_file="annotations/val_0527.json",
+        data_prefix=dict(img_path="val/rgb", tir_path="val/tir"),
         # filter_cfg=dict(filter_empty_gt=False, min_size=32),
         pipeline=val_pipeline,
     ),
 )
 val_evaluator = dict(
     type="CocoMetric",
-    ann_file=f"{data_root}/annotations/fold_0_val.json",
+    ann_file=f"{data_root}/annotations/val_0527.json",
     metric="bbox",
     format_only=False,
     backend_args=backend_args,
 )
 
-test_dataloader = val_dataloader
-test_evaluator = val_evaluator
+# test_dataloader = val_dataloader
+# test_evaluator = val_evaluator
+
+test_dataloader = dict(
+    batch_size=1,
+    num_workers=16,
+    persistent_workers=True,
+    drop_last=False,
+    sampler=dict(type="DefaultSampler", shuffle=False),
+    dataset=dict(
+        type=dataset_type,
+        serialize_data=False,
+        data_root=data_root,
+        ann_file="annotations/test.json",
+        data_prefix=dict(img_path="test/rgb", tir_path="test/tir"),
+        # filter_cfg=dict(filter_empty_gt=False, min_size=32),
+        pipeline=val_pipeline,
+    ),
+)
+
+test_evaluator = dict(
+    type="CocoMetric",
+    ann_file=f"{data_root}/annotations/test.json",
+    metric="bbox",
+    format_only=False,
+    backend_args=backend_args,
+)
 
 base_lr = 2e-5
 optim_wrapper = dict(

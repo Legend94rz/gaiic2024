@@ -21,6 +21,7 @@ def parse_args():
 
 def draw_bbox(img, boxes, scores=None):
     palette = {1: (5, 5, 214), 2: (26, 237, 26), 3:(225, 10, 10), 4:(32, 244, 244), 5:(230, 18, 230)}   # RGB
+    # palette = [None, (5, 5, 214), (26, 237, 26), (225, 10, 10), (32, 244, 244), (230, 18, 230),  (0, 0, 255), (255, 255, 0), (255, 0, 255), (0, 255, 255), (255, 168, 196), (255, 255, 255)]
     for i, box in enumerate(boxes):
         color = palette[box['category_id']]
         pt1 = np.array(box['bbox'][:2])
@@ -73,6 +74,8 @@ if __name__ == "__main__":
     for img_id, img in tqdm(images.items()):
         bboxes = [x for x in annotations if x['image_id'] == img_id and ('score' not in x or x['score'] > args.thres)]
         scores = [(x['score'] if 'score' in x else None) for x in annotations if x['image_id'] == img_id  and ('score' not in x or x['score'] > args.thres)]
+        # mat = draw_bbox(cv2.imread(str(f /  "imgs" / img['file_name'])), bboxes, scores)
+        # cv2.imwrite(str(s / img['file_name']), mat)
         tir = draw_bbox(cv2.imread(str(f /  "tir" / img['file_name'])), bboxes, scores)
         rgb = draw_bbox(cv2.imread(str(f /  "rgb" / img['file_name'])), bboxes, scores)
         mat = np.concatenate([tir, rgb], axis=0)

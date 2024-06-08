@@ -10,12 +10,15 @@ def parse_args():
     parser.add_argument('config', type=str)
     parser.add_argument('-n', type=int, default=5, help='#fold')
     parser.add_argument("--prefix", type=str, default="")
+    parser.add_argument('--shuffle', action='store_true')
+    parser.add_argument('--random_seed', type=int, default=42)
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_args()
-    kf = KFold(args.n, shuffle=False)
+    seed = args.random_seed if args.shuffle else None
+    kf = KFold(args.n, shuffle=args.shuffle, random_state=seed)
     p = Path(args.config)
     prefix = args.prefix
 

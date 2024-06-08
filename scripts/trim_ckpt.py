@@ -1,0 +1,30 @@
+import argparse
+import torch
+from pathlib import Path
+"""
+python scripts/trim_ckpt.py     work_dirs/codetr_all_in_one/_20240520_153439/epoch_12.pth           model_data/codetr_full_0518data.pth
+python scripts/trim_ckpt.py     work_dirs/codetr_all_in_one/_20240528_194827/epoch_10.pth           model_data/codetr_full_0527data.pth
+python scripts/trim_ckpt.py     work_dirs/mean_fuse/_20240530_092722/epoch_11.pth                   model_data/mean_fuse_full.pth
+python scripts/trim_ckpt.py     work_dirs/mean_fuse/_20240607_092457/epoch_11.pth                   model_data/mean_fuse_with_pretrained.pth
+python scripts/trim_ckpt.py     work_dirs/codetr_all_in_one/_20240531_141605_fold_0/epoch_12.pth    model_data/codetr_0527fold0.pth
+python scripts/trim_ckpt.py     work_dirs/codetr_all_in_one/_20240531_141605_fold_1/epoch_12.pth    model_data/codetr_0527fold1.pth
+python scripts/trim_ckpt.py     work_dirs/codetr_all_in_one/_20240531_141605_fold_2/epoch_12.pth    model_data/codetr_0527fold2.pth
+"""
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('ckpt', type=str)
+    parser.add_argument('save_path', type=str)
+    return parser.parse_args()
+
+
+if __name__ == "__main__":
+    args = parse_args()
+    x = Path(args.ckpt)
+    ckpt = torch.load(x, map_location='cpu')
+    if 'ema_state_dict' in ckpt:
+        ckpt['state_dict'] = {k[len('module.'):]: v for k, v in ckpt['ema_state_dict'].items() if k.startswith('module.')}
+    ckpt.pop('ema_state_dict', None)
+    ckpt.pop('optimizer')
+    ckpt.pop('param_schedulers')
+    torch.save(ckpt, Path(args.save_path))

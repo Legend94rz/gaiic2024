@@ -46,6 +46,13 @@
 使用的模型权重（下载链接、md5）及数据集
 
 
+**时间节点**
+0608 10:00 开始准备复现环境
+0610 23:00 线下提交结束、复现环境搭建结束
+0611 10:00 ~ 23:00 B榜
+WANDB 注意关掉
+
+
 速度问题:
 注意提交时不要 加--show参数，很慢。
 with mosaic:
@@ -240,7 +247,74 @@ _20240531_141605_fold_x
     ```
     线下大概 0.688424174 (0.677093871	0.905373239	0.816539492	0.352021417	0.678945491	0.864768281)
     线上 0.5344882749788099
-    
+
+    _20240531_141605_fold_2/epoch_12_submit 线上 0.52159267842541
+    0.11/0.7 线上 0.5323533461235721
+
+
+20240604
+    ensemble:
+    0.07/0.75
+    ```
+    python scripts/ensemble.py -p \
+        work_dirs/codetr_all_in_one/_20240520_153439/epoch_12_submit.pkl \
+        work_dirs/codetr_all_in_one/_20240528_194827/epoch_10_submit.pkl \
+        work_dirs/mean_fuse/_20240530_092722/epoch_11_submit.pkl \
+        work_dirs/codetr_all_in_one/_20240531_141605_fold_0/epoch_12_submit.pkl \
+        work_dirs/codetr_all_in_one/_20240531_141605_fold_1/epoch_12_submit.pkl \
+        work_dirs/codetr_all_in_one/_20240531_141605_fold_2/epoch_12_submit.pkl \
+        work_dirs/codetr_all_in_one/_20240531_141605_fold_3/epoch_12_submit.pkl \
+        -o ensemble_exp/submit_`date +"%m%d_%H%M%S"`
+    ```
+    线下大概 0.687961541 (0.677108555	0.906284883	0.816691961	0.352587451	0.678711164	0.865270554)
+    线上 0.5339383937498916
+
+
+20240605
+    ensemble:
+    0.07/0.75
+    ```
+    python scripts/ensemble.py -p \
+        work_dirs/codetr_all_in_one/_20240520_153439/epoch_12_submit.pkl \
+        work_dirs/codetr_all_in_one/_20240528_194827/epoch_10_submit.pkl \
+        work_dirs/mean_fuse/_20240530_092722/epoch_11_submit.pkl \
+        work_dirs/codetr_all_in_one/_20240531_141605_fold_0/epoch_12_submit.pkl \
+        work_dirs/codetr_all_in_one/_20240531_141605_fold_1/epoch_12_submit.pkl \
+        work_dirs/codetr_all_in_one/_20240531_141605_fold_2/epoch_12_submit.pkl \
+        work_dirs/codetr_all_in_one/_20240531_141605_fold_4/epoch_12_submit.pkl \
+        -o ensemble_exp/submit_`date +"%m%d_%H%M%S"`
+    ```
+    线上 0.5334507961984957
+    _20240531_141605_fold_4/epoch_12_submit.pkl 线上 0.5126251971559532 <最低分>
+
+
+20240607
+    ```
+    python scripts/ensemble.py -p \
+        work_dirs/codetr_all_in_one/_20240520_153439/epoch_12_submit.pkl \
+        work_dirs/codetr_all_in_one/_20240528_194827/epoch_10_submit.pkl \
+        work_dirs/mean_fuse/_20240530_092722/epoch_11_submit.pkl \
+        work_dirs/codetr_all_in_one/_20240531_141605_fold_0/epoch_12_submit.pkl \
+        work_dirs/codetr_all_in_one/_20240531_141605_fold_1/epoch_12_submit.pkl \
+        work_dirs/codetr_all_in_one/_20240531_141605_fold_2/epoch_12_submit.pkl \
+        work_dirs/mean_fuse/_20240607_092457/epoch_11_submit.pkl \
+        -o ensemble_exp/submit_`date +"%m%d_%H%M%S"`
+    ```
+    线上 0.5356947630570912
+
+0608
+    python scripts/ensemble.py -p \
+        work_dirs/codetr_all_in_one/_20240520_153439/epoch_12_submit.pkl \
+        work_dirs/codetr_all_in_one/_20240528_194827/epoch_10_submit.pkl \
+        work_dirs/mean_fuse/_20240530_092722/epoch_11_submit.pkl \
+        work_dirs/codetr_all_in_one/_20240531_141605_fold_0/epoch_12_submit.pkl \
+        work_dirs/codetr_all_in_one/_20240531_141605_fold_1/epoch_12_submit.pkl \
+        work_dirs/codetr_all_in_one/_20240531_141605_fold_2/epoch_12_submit.pkl \
+        work_dirs/mean_fuse/_20240607_092457/epoch_11_submit.pkl \
+        work_dirs/codetr_all_in_one/_20240607_222820/epoch_12_submit.pkl \
+        -o ensemble_exp/submit_`date +"%m%d_%H%M%S"`
+
+    线上 0.5372200160553522
 
 ## TODO
 conf-thres=0    mosaic + 多模态: 1epoch     线上 ?

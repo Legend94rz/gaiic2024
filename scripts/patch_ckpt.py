@@ -1,10 +1,19 @@
 import torch
 from einops import repeat
+import argparse
+from pathlib import Path
+
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--ckpt", type=str)
+    return parser.parse_args()
 
 
 if __name__ == "__main__":
-    input_ckpt = "ckpt/co_dino_5scale_swin_large_16e_o365tococo-614254c9.pth"
-    save_ckpt = "ckpt/co_dino_5scale_swin_large_16e_o365tococo-614254c9_patched.pth"
+    args = parse_args()
+    input_ckpt = Path(args.ckpt)
+    save_ckpt = input_ckpt.parent / f"{input_ckpt.stem}_patched.pth"
 
     ckpt = torch.load(input_ckpt, map_location='cpu')
 

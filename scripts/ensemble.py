@@ -79,7 +79,7 @@ def ensemble_v2(preds, skip_thres, nms_thres):
     labels_list = [x['labels'] for x in preds]
     boxes, scores, labels = weighted_boxes_fusion(
         boxes_list, scores_list, labels_list,
-        iou_thr=nms_thres, skip_box_thr=skip_thres
+        iou_thr=nms_thres, skip_box_thr=skip_thres,
     )
     return {
         'bboxes': boxes * wh,
@@ -148,7 +148,7 @@ if __name__ == "__main__":
     opt_cfg = None
     records = []
     # for skip_thres in np.arange(0.02, 0.15, 0.01):
-        # for nms_thres in np.arange(0.6, 0.96, 0.05):
+    #     for nms_thres in np.arange(0.6, 0.96, 0.05):
     for skip_thres in [0.07]:
         for nms_thres in [0.75]:
             final_res = to_std_format({k: ensemble_v2(preds, skip_thres, nms_thres) for k, preds in all_preds.items()})

@@ -84,7 +84,66 @@ from tqdm import tqdm
                 }
             ],
             "maskTargetsColors": []
+        },
+        {
+            "path": "prediction_cat",
+            "fieldColor": null,
+            "colorByAttribute": "label",
+            "valueColors": [
+                {
+                    "color": "#0900ee",
+                    "value": "car"
+                },
+                {
+                    "color": "#7edd6a",
+                    "value": "truck"
+                },
+                {
+                    "color": "#990020",
+                    "value": "bus"
+                },
+                {
+                    "color": "#1ce3e1",
+                    "value": "van"
+                },
+                {
+                    "color": "#ed1cf2",
+                    "value": "freight_car"
+                }
+            ],
+            "maskTargetsColors": []
+        },
+        {
+            "path": "prediction_fuse",
+            "fieldColor": null,
+            "colorByAttribute": "label",
+            "valueColors": [
+                {
+                    "color": "#0900ee",
+                    "value": "car"
+                },
+                {
+                    "color": "#7edd6a",
+                    "value": "truck"
+                },
+                {
+                    "color": "#990020",
+                    "value": "bus"
+                },
+                {
+                    "color": "#1ce3e1",
+                    "value": "van"
+                },
+                {
+                    "color": "#ed1cf2",
+                    "value": "freight_car"
+                }
+            ],
+            "maskTargetsColors": []
         }
+
+
+
     ],
     "labelTags": null,
     "defaultMaskTargetsColors": null,
@@ -116,24 +175,29 @@ if __name__ == "__main__":
     )
     # dataset = fo.load_dataset("gaiic_train")
 
-    pred = pkl.load(open(f"{workspace}/work_dirs/codetr_all_in_one/_20240520_153439/epoch_10_submit.pkl", 'rb'))
-    for x in tqdm(pred, desc='add predictions'):
-        inst = x['pred_instances']
-        # sample = dataset[str( Path(workspace) / x['img_path'] ).replace('rgb', 'tir')]
-        sample = dataset[str( Path(workspace) / x['img_path'] )]
-        h, w = x['ori_shape']
-        wh = torch.tensor([w, h, w, h], dtype=torch.float)
-        
-        boxes = box_convert(inst['bboxes'], 'xyxy', 'xywh') / wh
+    for name, f in [
+        ('', "ensemble_exp/submit_0602_155304/ensemble.pkl"),
+        # ('cat', f"{workspace}/work_dirs/codetr_all_in_one/_20240528_194827/epoch_10_submit.pkl"),
+        # ('fuse', f"{workspace}/work_dirs/mean_fuse/_20240530_092722/epoch_11_submit.pkl"),
+    ]:
+        pred = pkl.load(open(f, 'rb'))
+        for x in tqdm(pred, desc='add predictions'):
+            inst = x['pred_instances']
+            # sample = dataset[str( Path(workspace) / x['img_path'] ).replace('rgb', 'tir')]
+            sample = dataset[str( Path(workspace) / x['img_path'] )]
+            h, w = x['ori_shape']
+            wh = torch.tensor([w, h, w, h], dtype=torch.float)
+            
+            boxes = box_convert(inst['bboxes'], 'xyxy', 'xywh') / wh
 
-        sample['prediction'] = fo.Detections(detections=[
-            fo.Detection(
-                label=label_name[inst['labels'][i].item()],
-                bounding_box=boxes[i].tolist(),
-                confidence=inst['scores'][i].item(),
-            ) for i in range(len(boxes))
-        ])
-        sample.save()
+            sample[f'prediction_{name}'] = fo.Detections(detections=[
+                fo.Detection(
+                    label=label_name[inst['labels'][i].item()],
+                    bounding_box=boxes[i].tolist(),
+                    confidence=inst['scores'][i].item(),
+                ) for i in range(len(boxes))
+            ])
+            sample.save()
 
     session = fo.launch_app(dataset, remote=True)
     session.wait(-1)

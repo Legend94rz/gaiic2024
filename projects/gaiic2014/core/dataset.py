@@ -59,26 +59,29 @@ def replace_2dmat_value_at(src, loc, des):
 class LoadTirFromPath(LoadImageFromFile):
     def transform(self, results: dict) -> dict | None:
         filename = results['tir_path']
-        try:
-            if self.file_client_args is not None:
-                file_client = fileio.FileClient.infer_client(
-                    self.file_client_args, filename)
-                img_bytes = file_client.get(filename)
-            else:
-                img_bytes = fileio.get(
-                    filename, backend_args=self.backend_args)
-            img = mmcv.imfrombytes(
-                img_bytes, flag=self.color_type, backend=self.imdecode_backend)
-        except Exception as e:
-            if self.ignore_empty:
-                return None
-            else:
-                raise e
-        # in some cases, images are not read successfully, the img would be
-        # `None`, refer to https://github.com/open-mmlab/mmpretrain/issues/1427
-        assert img is not None, f'failed to load image: {filename}'
-        if self.to_float32:
-            img = img.astype('float32')
+        if filename is None:
+            img = np.tile(cv2.cvtColor(results['img'], cv2.COLOR_BGR2GRAY)[..., None], (1, 1, 3))
+        else:
+            try:
+                if self.file_client_args is not None:
+                    file_client = fileio.FileClient.infer_client(
+                        self.file_client_args, filename)
+                    img_bytes = file_client.get(filename)
+                else:
+                    img_bytes = fileio.get(
+                        filename, backend_args=self.backend_args)
+                img = mmcv.imfrombytes(
+                    img_bytes, flag=self.color_type, backend=self.imdecode_backend)
+            except Exception as e:
+                if self.ignore_empty:
+                    return None
+                else:
+                    raise e
+            # in some cases, images are not read successfully, the img would be
+            # `None`, refer to https://github.com/open-mmlab/mmpretrain/issues/1427
+            assert img is not None, f'failed to load image: {filename}'
+            if self.to_float32:
+                img = img.astype('float32')
 
         results['tir'] = img
         return results
@@ -977,6 +980,99 @@ class GAIIC2014DatasetV2(CocoDataset):
         data_info = {}
         data_info['img_path'] = Path(self.data_prefix['img_path']) / img_info['file_name']
         data_info['tir_path'] = Path(self.data_prefix['tir_path']) / img_info['file_name']
+        data_info['img_id'] = img_info['img_id']
+        data_info['seg_map_path'] = None
+        data_info['height'] = img_info['height']
+        data_info['width'] = img_info['width']
+
+        if self.return_classes:
+            data_info['text'] = self.metainfo['classes']
+            data_info['caption_prompt'] = self.caption_prompt
+            data_info['custom_entities'] = True
+
+        instances = []
+        for i, ann in enumerate(ann_info):
+            instance = {}
+
+            if ann.get('ignore', False):
+                continue
+            x1, y1, w, h = ann['bbox']
+            inter_w = max(0, min(x1 + w, img_info['width']) - max(x1, 0))
+            inter_h = max(0, min(y1 + h, img_info['height']) - max(y1, 0))
+            if inter_w * inter_h == 0:
+                continue
+            if ann['area'] <= 0 or w < 1 or h < 1:
+                continue
+            if ann['category_id'] not in self.cat_ids:
+                continue
+            bbox = [x1, y1, x1 + w, y1 + h]
+
+            if ann.get('iscrowd', False):
+                instance['ignore_flag'] = 1
+            else:
+                instance['ignore_flag'] = 0
+            instance['bbox'] = bbox
+            instance['bbox_label'] = self.cat2label[ann['category_id']]
+
+            if ann.get('segmentation', None):
+                instance['mask'] = ann['segmentation']
+
+            instances.append(instance)
+        data_info['instances'] = instances
+        return data_info
+
+    def prepare_data(self, idx) -> Any:
+        """Get data processed by ``self.pipeline``.
+
+        Args:
+            idx (int): The index of ``data_info``.
+
+        Returns:
+            Any: Depends on ``self.pipeline``.
+        """
+        data_info = self.get_data_info(idx)
+        data_info['dataset'] = self
+        try:
+            return self.pipeline(data_info)
+        except Exception as e:
+            return None
+
+
+@DATASETS.register_module()
+class PretrainDataset(CocoDataset):
+    METAINFO = {
+        'classes': ('car', 'truck', 'tractor', 'camping car', 'van', 'vehicle', 'pick-up', 'ship', 'plane', 'bus', 'cycle'),
+        'palette': [(5, 5, 214), (26, 237, 26), (225, 10, 10), (32, 244, 244), (230, 18, 230),  (0, 0, 255), (255, 255, 0), (255, 0, 255), (0, 255, 255), (255, 168, 196), (255, 255, 255)]
+    }
+
+    # def parse_data_info(self, raw_data_info: dict) -> Union[dict, List[dict]]:
+    #     data_info = super().parse_data_info(raw_data_info)
+
+    #     img_info = raw_data_info['raw_img_info']
+    #     if self.data_prefix.get('tir_path', None) is not None:
+    #         data_info['tir_path'] = Path(self.data_prefix['tir_path']) / img_info['file_name']
+    #     else:
+    #         data_info['tir_path'] = None
+    #     return data_info
+
+    def parse_data_info(self, raw_data_info: dict) -> Union[dict, List[dict]]:
+        """Parse raw annotation to target format.
+
+        Args:
+            raw_data_info (dict): Raw data information load from ``ann_file``
+
+        Returns:
+            Union[dict, List[dict]]: Parsed annotation.
+        """
+        img_info = raw_data_info['raw_img_info']
+        ann_info = raw_data_info['raw_ann_info']
+
+        data_info = {}
+        data_info['img_path'] = Path(self.data_prefix['img_path']) / img_info['file_name']
+        if self.data_prefix.get('tir_path', None) is not None:
+            data_info['tir_path'] = Path(self.data_prefix['tir_path']) / img_info['file_name']
+        else:
+            data_info['tir_path'] = None
         data_info['img_id'] = img_info['img_id']
         data_info['seg_map_path'] = None
         data_info['height'] = img_info['height']
