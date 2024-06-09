@@ -9,6 +9,8 @@ python scripts/trim_ckpt.py     work_dirs/mean_fuse/_20240607_092457/epoch_11.pt
 python scripts/trim_ckpt.py     work_dirs/codetr_all_in_one/_20240531_141605_fold_0/epoch_12.pth    model_data/codetr_0527fold0.pth
 python scripts/trim_ckpt.py     work_dirs/codetr_all_in_one/_20240531_141605_fold_1/epoch_12.pth    model_data/codetr_0527fold1.pth
 python scripts/trim_ckpt.py     work_dirs/codetr_all_in_one/_20240531_141605_fold_2/epoch_12.pth    model_data/codetr_0527fold2.pth
+python scripts/trim_ckpt.py     work_dirs/codetr_all_in_one/_20240607_222820/epoch_12.pth           model_data/codetr_full_0527data_strong_aug.pth
+python scripts/trim_ckpt.py     work_dirs/codetr_all_in_one_complex_data_with_pretrain/_20240608_201858/epoch_12.pth           model_data/codetr_full_0527data_strong_aug_with_pretrain.pth
 """
 
 def parse_args():
@@ -22,8 +24,6 @@ if __name__ == "__main__":
     args = parse_args()
     x = Path(args.ckpt)
     ckpt = torch.load(x, map_location='cpu')
-    if 'ema_state_dict' in ckpt:
-        ckpt['state_dict'] = {k[len('module.'):]: v for k, v in ckpt['ema_state_dict'].items() if k.startswith('module.')}
     ckpt.pop('ema_state_dict', None)
     ckpt.pop('optimizer')
     ckpt.pop('param_schedulers')

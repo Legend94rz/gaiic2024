@@ -15,6 +15,7 @@ default_hooks = dict(
     checkpoint=dict(type="CheckpointHook", interval=1, by_epoch=True, max_keep_ckpts=5),
     sampler_seed=dict(type="DistSamplerSeedHook"),
     visualization=dict(type="DetVisualizationHook"),
+    ema=dict(type="MyEMAHook", ema_type="StochasticWeightAverage", begin_epoch=9)
 )
 
 env_cfg = dict(
@@ -45,13 +46,13 @@ backend_args = None
 resume = False
 num_dec_layer = 6
 loss_lambda = 2.0
-# num_classes = 5
-# dataset_type = "GAIIC2014DatasetV2"
-num_classes = 11
-dataset_type = "PretrainDataset"
+num_classes = 5
+dataset_type = "GAIIC2014DatasetV2"
+data_root = "data/track1-A/"
 pretrained = "ckpt/swin_large_patch4_window12_384_22k.pth"
-load_from = "ckpt/co_dino_5scale_swin_large_16e_o365tococo-614254c9.pth"
+load_from = "ckpt/co_dino_5scale_swin_large_16e_o365tococo-614254c9_patched.pth"
 
+# image_size = (1024, 1024)
 # batch_augments = [
 #     dict(type='BatchFixedSizePad', size=image_size, pad_mask=True)
 # ]
@@ -130,7 +131,8 @@ model = dict(
             num_co_heads=2,  # ATSS Aux Head + Faster RCNN Aux Head
             num_feature_levels=5,
             encoder=dict(
-                type="DetrTransformerEncoder",
+                # type="DetrTransformerEncoder",
+                type="DualModalEncoder",
                 num_layers=6,
                 # number of layers that use checkpoint.
                 # The maximum value for the setting is num_layers.
@@ -139,7 +141,8 @@ model = dict(
                 transformerlayers=dict(
                     type="BaseTransformerLayer",
                     attn_cfgs=dict(
-                        type="FuseMSDeformAttention",
+                        type="DualModalDeformableAttention",
+                        # type="FuseMSDeformAttention",
                         # type="MultiScaleDeformableAttention",
                         embed_dims=256,
                         num_levels=5,
@@ -398,19 +401,54 @@ transform_broadcast = dict(
     auto_remap=True,
     share_random_params=True,
 )
-train_pipeline = [
+
+train_pipeline_stage1 = [
+    dict(
+        type='MultiInputMixPadding',
+        keys=['img', 'tir'], size=image_size, block_if_below=0.5, pad_val=(114, 114, 114),
+        individual_pipeline=[
+            dict(type="LoadImageFromFile"),
+            dict(type="LoadTirFromPath"),
+            dict(type="LoadAnnotations", with_bbox=True),
+            dict(type='YOLOXHSVRandomAug'),
+            dict(type='Contrast'),
+            dict(type='RandomShiftOnlyImg', max_shift_px=12, prob=0.7),
+            dict(**transform_broadcast, transforms=[
+                dict(
+                    type='RandomResize',
+                    scale=image_size,
+                    ratio_range=(0.7, 1.5),
+                    keep_ratio=True
+                ),
+                dict(
+                    type='RandomCrop',
+                    crop_type='absolute',
+                    crop_size=image_size,
+                    allow_negative_crop=False,
+                ),
+                dict(type='Sharpness'),
+                dict(type='RandomRotate90', dir=['l'], prob=0.5),
+                dict(type='RandomFlip', prob=0.5, direction=['horizontal', 'vertical', 'diagonal']),
+            ])
+        ]
+    ),
+    # dict(type='Normalize', mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True),
+    dict(type="CustomPackDetInputs"),
+]
+
+train_pipeline_stage2 = [
     dict(type="LoadImageFromFile"),
     dict(type="LoadTirFromPath"),
     dict(type="LoadAnnotations", with_bbox=True),
+    dict(type='RandomShiftOnlyImg', max_shift_px=10, prob=0.5),
     dict(**transform_broadcast, transforms=[
-        dict(type='Resize', scale=image_size),
         dict(
             type='RandomResize',
             scale=image_size,
-            ratio_range=(0.7, 2.0),
+            ratio_range=(0.75, 1.5),
             keep_ratio=True
         ),
-        dict(type='RandomRotate90', prob=0.5, dir=['l']),
+        # dict(type='RandomRotate90', prob=0.5, dir=['l']),
         dict(
             type='RandomCrop',
             crop_type='absolute',
@@ -421,6 +459,7 @@ train_pipeline = [
         dict(type='RandomFlip', prob=0.5),
         dict(type='Pad', size=image_size, pad_val=dict(img=(114, 114, 114))),
     ]),
+    # dict(type='Normalize', mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True),
     dict(type="CustomPackDetInputs"),
 ]
 
@@ -429,36 +468,22 @@ train_dataloader = dict(
     num_workers=16,
     prefetch_factor=4,
     sampler=dict(type="DefaultSampler", shuffle=True),
-
-    # dataset=dict(
-    #     type=dataset_type,
-    #     data_root="data/aistudio",
-    #     serialize_data=False,
-    #     ann_file="sample_data.json",
-    #     data_prefix=dict(img_path="original/original/imgs"),
-    #     pipeline=train_pipeline,
-    # ),
-
     dataset=dict(
-        type="ConcatDataset",
-        datasets=[
-            dict(
-                type=dataset_type,
-                data_root="data/vedai",
-                serialize_data=False,
-                ann_file="annotations.json",
-                data_prefix=dict(img_path="Vehicules512/rgb", tir_path="Vehicules512/tir"),
-                pipeline=train_pipeline,
-            ),
-            dict(
-                type=dataset_type,
-                data_root="data/aistudio",
-                serialize_data=False,
-                ann_file="_0_train.json",
-                data_prefix=dict(img_path="original/original/imgs"),
-                pipeline=train_pipeline,
-            ),
-        ]
+        type=dataset_type,
+        data_root=data_root,
+        serialize_data=False,
+        ann_file="annotations/train_0527.json",
+        data_prefix=dict(img_path="train/rgb", tir_path="train/tir"),
+        # filter_cfg=dict(filter_empty_gt=False, min_size=32),
+        pipeline=train_pipeline_stage1,
+    ),
+)
+default_hooks = dict(
+    **default_hooks,
+    switch=dict(
+        type='PipelineSwitchHook',
+        switch_epoch=7,
+        switch_pipeline=train_pipeline_stage2
     )
 )
 
@@ -497,28 +522,51 @@ val_dataloader = dict(
     sampler=dict(type="DefaultSampler", shuffle=False),
     dataset=dict(
         type=dataset_type,
-        data_root="data/aistudio",
         serialize_data=False,
-        ann_file="_0_val.json",
-        # ann_file="sample_data.json",
-        data_prefix=dict(img_path="original/original/imgs"),
+        data_root=data_root,
+        ann_file="annotations/val_0527.json",
+        data_prefix=dict(img_path="val/rgb", tir_path="val/tir"),
+        # filter_cfg=dict(filter_empty_gt=False, min_size=32),
         pipeline=val_pipeline,
     ),
 )
 val_evaluator = dict(
     type="CocoMetric",
-    ann_file=f"data/aistudio/_0_val.json",
-    # ann_file=f"data/aistudio/sample_data.json",
+    ann_file=f"{data_root}/annotations/val_0527.json",
     metric="bbox",
     format_only=False,
     backend_args=backend_args,
 )
 
+# test_dataloader = val_dataloader
+# test_evaluator = val_evaluator
 
-test_dataloader = val_dataloader
-test_evaluator = val_evaluator
+test_dataloader = dict(
+    batch_size=1,
+    num_workers=16,
+    persistent_workers=True,
+    drop_last=False,
+    sampler=dict(type="DefaultSampler", shuffle=False),
+    dataset=dict(
+        type=dataset_type,
+        serialize_data=False,
+        data_root=data_root,
+        ann_file="annotations/test.json",
+        data_prefix=dict(img_path="test/rgb", tir_path="test/tir"),
+        # filter_cfg=dict(filter_empty_gt=False, min_size=32),
+        pipeline=val_pipeline,
+    ),
+)
 
-base_lr = 2e-5
+test_evaluator = dict(
+    type="CocoMetric",
+    ann_file=f"{data_root}/annotations/test.json",
+    metric="bbox",
+    format_only=False,
+    backend_args=backend_args,
+)
+
+base_lr = 2e-5 * 2
 optim_wrapper = dict(
     type="OptimWrapper",
     optimizer=dict(type="AdamW", lr=base_lr, weight_decay=0.0001),
@@ -531,21 +579,31 @@ optim_wrapper = dict(
     }),
 )
 
-max_epochs = 10
+max_epochs = 13
 train_cfg = dict(type="EpochBasedTrainLoop", max_epochs=max_epochs, val_interval=1)
 val_cfg = dict(type="ValLoop")
 test_cfg = dict(type="TestLoop")
 
-# param_scheduler = [
-#     dict(
-#         type='LinearLR',
-#         start_factor=1./4,
-#         by_epoch=False,
-#         begin=0,
-#         end=1000,
-#         # verbose=True
-#     ),
-# ]
+param_scheduler = [
+    dict(
+        type='LinearLR',
+        start_factor=1./4,
+        by_epoch=False,
+        begin=0,
+        end=1000,
+        # verbose=True
+    ),
+    dict(
+        type='CosineAnnealingLR',
+        eta_min=base_lr * 0.05,
+        begin=8,
+        end=13,
+        T_max=5,
+        by_epoch=True,
+        verbose=True,
+        # convert_to_iter_based=True,
+    ),
+]
 
 log_level = "INFO"
 log_processor = dict(by_epoch=True)

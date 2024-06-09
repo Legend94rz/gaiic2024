@@ -26,17 +26,17 @@ env_cfg = dict(
 
 vis_backends = [
     dict(type="LocalVisBackend"),
-    dict(
-        type="WandbVisBackend",
-        save_dir='wandb',
-        init_kwargs=dict(
-            project="gaiic2014",
-            save_code=True,
-            settings={"code_dir": "projects"},
-            notes="",
-            tags=[]
-        ),
-    )
+    # dict(
+    #     type="WandbVisBackend",
+    #     save_dir='wandb',
+    #     init_kwargs=dict(
+    #         project="gaiic2014",
+    #         save_code=True,
+    #         settings={"code_dir": "projects"},
+    #         notes="",
+    #         tags=[]
+    #     ),
+    # )
 ]
 visualizer = dict(
     type="DetLocalVisualizer", vis_backends=vis_backends, name="visualizer"
