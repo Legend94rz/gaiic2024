@@ -2,54 +2,59 @@
 input_dir=$1
 data_root=$2
 output_path=$3
-opt1="test_dataloader={'batch_size': 2, 'dataset': {'ann_file': 'annotations/test.json', 'data_root': '${data_root}', 'data_prefix': {'img_path': '$4/rgb', 'tir_path': '$4/tir'}}}"
+ckpt_folder=/home/mw/input/gaiic2024_9ckpt3092/model_data
+opt1="test_dataloader={'batch_size': 2, 'num_workers': 8, 'dataset': {'ann_file': 'annotations/test.json', 'data_root': '${data_root}', 'data_prefix': {'img_path': '$4/rgb', 'tir_path': '$4/tir'}}}"
 opt2="test_evaluator={'ann_file': '${data_root}/annotations/test.json'}"
+
+mkdir /home/mw/project/cache -p
+export MPLCONFIGDIR=/home/mw/project/cache
+export PYTORCH_KERNEL_CACHE_PATH=/home/mw/project/cache
 
 python scripts/make_test_json_input.py "${input_dir}" --save_path "${data_root}"/annotations/test.json
 
 WANDB_MODE=offline PYTHONPATH=. python tools/test.py \
 projects/gaiic2014/configs/codetr_all_in_one.py \
-model_data/codetr_0527fold0.pth \
+${ckpt_folder}/codetr_0527fold0.pth \
 --out tmp/codetr_0527fold0.pkl --cfg-options "${opt1}" "${opt2}"
 
 WANDB_MODE=offline PYTHONPATH=. python tools/test.py \
 projects/gaiic2014/configs/codetr_all_in_one.py \
-model_data/codetr_0527fold1.pth \
+${ckpt_folder}/codetr_0527fold1.pth \
 --out tmp/codetr_0527fold1.pkl --cfg-options "${opt1}" "${opt2}"
 
 WANDB_MODE=offline PYTHONPATH=. python tools/test.py \
 projects/gaiic2014/configs/codetr_all_in_one.py \
-model_data/codetr_0527fold2.pth \
+${ckpt_folder}/codetr_0527fold2.pth \
 --out tmp/codetr_0527fold2.pkl  --cfg-options "${opt1}" "${opt2}"
 
 WANDB_MODE=offline PYTHONPATH=. python tools/test.py \
 projects/gaiic2014/configs/codetr_all_in_one.py \
-model_data/codetr_full_0518data.pth \
+${ckpt_folder}/codetr_full_0518data.pth \
 --out tmp/codetr_full_0518data.pkl --cfg-options "${opt1}" "${opt2}"
 
 WANDB_MODE=offline PYTHONPATH=. python tools/test.py \
 projects/gaiic2014/configs/codetr_all_in_one_strong_aug_with_pretrain.py \
-model_data/codetr_full_0527data_strong_aug_with_pretrain.pth \
+${ckpt_folder}/codetr_full_0527data_strong_aug_with_pretrain.pth \
 --out tmp/codetr_full_0527data_strong_aug_with_pretrain.pkl --cfg-options "${opt1}" "${opt2}"
 
 WANDB_MODE=offline PYTHONPATH=. python tools/test.py \
 projects/gaiic2014/configs/codetr_all_in_one_strong_aug.py \
-model_data/codetr_full_0527data_strong_aug.pth \
+${ckpt_folder}/codetr_full_0527data_strong_aug.pth \
 --out tmp/codetr_full_0527data_strong_aug.pkl --cfg-options "${opt1}" "${opt2}"
 
 WANDB_MODE=offline PYTHONPATH=. python tools/test.py \
 projects/gaiic2014/configs/codetr_all_in_one.py \
-model_data/codetr_full_0527data.pth \
+${ckpt_folder}/codetr_full_0527data.pth \
 --out tmp/codetr_full_0527data.pkl --cfg-options "${opt1}" "${opt2}"
 
 WANDB_MODE=offline PYTHONPATH=. python tools/test.py \
 projects/gaiic2014/configs/mean_fuse.py \
-model_data/mean_fuse_full.pth \
+${ckpt_folder}/mean_fuse_full.pth \
 --out tmp/mean_fuse_full.pkl --cfg-options "${opt1}" "${opt2}"
 
 WANDB_MODE=offline PYTHONPATH=. python tools/test.py \
 projects/gaiic2014/configs/mean_fuse_with_pretrained.py \
-model_data/mean_fuse_with_pretrained.pth \
+${ckpt_folder}/mean_fuse_with_pretrained.pth \
 --out tmp/mean_fuse_with_pretrained.pkl --cfg-options "${opt1}" "${opt2}"
 
 
