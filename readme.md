@@ -1,341 +1,281 @@
-[x] 线上线下差距较大的问题(是否与score阈值有关? maxDet?): 不要加阈值过滤。仍然没有完全解决：需要确认下是否是val与test分布差距较大，看下预测结果。
-    大概率是因为测试集都没对齐。另外有一些极小的目标，暂时无解。
-    重点解决【有一些明明rgb上很清晰，但是就是漏检】: 随机用其他无目标区域填充tir
-[x] 数据可视化；预测结果 badcase
-[x] 排查训练速度问题
-[x] test json
-[x] 检查下各种resize/crop参数的正确性，w/h的顺序
-[x] 检查下各种bbox的格式：到底是min/max还是min/wh还是cxy/wh: train/val/test pkl/output json.
-    标注与提交都是min/wh
-[x] 验证单模态(tir/rgb)的分数 (as baseline)
-[] 验证mosaic对于CoDETR的有效性
-[x] appearance augmentation || fuse augmentaion
-[x] wandb。尽快确定改动是否有效
-[] giouloss -> ciou loss / siou loss
-[x] lr warmup & annealing
-[x] swa
-[x] 测试下 test_cfg 的nms参数对测试集上大量目标的图片是否不够。【似乎足够，测试nq=300, nms-thres->0.9，分数降低】
-[x] 检查改进的concat fuse deform attn的几个重要参数的正确性（不同模态的参数是否变化不同）：有效
-[] 检查 multi-scale是否有助于解决漏检的问题（若有，则需要加 **TTA**，并且调整multi-scale增广）
-[x] 检查是否有类似 p_obj 的输出，调节权重：FocalLoss use_sigmoid，不匹配的query预测是全0，而不是one-hot。
-[x] *验证集加入训练*
-[] 输出后处理：如先确定recall接近1时的conf-thres, 在这附近，找一个conf-下降最快的点，低于该点的框置0（或者不输出）. 另外可能有面积极小甚至为0的框，需要去掉。
-[] weighted box fusion。官方实现很可能有bug，需要自己写
-[] soft-label?
-[x] 把那几个过小的，手动放大，测试下有无改善。若有，针对这部分数据特殊处理。【无改善】
-[] 确认下，good/bad分别是什么原因导致的，如果bad里预测没问题，而仅仅是标注错了，那数据清洗的收益可能不大。以及good是否是真good，还是因为预测和标注都错了所以分数高。
-[] 数据清洗(规则 + ignore<有无可能做在线?>) 对于训练+验证集：过大的van(>150): 规则筛选后修改标注。(100~150?): 在线ignore
-[] 训练集目前发现的问题: 
-    van与freight_car类别相互误标；
-    van里还误标了一些car
-    truck/bus标注相对干净，只有少量car/van被误标。
-[] 用清洗过数据的模型重新测试 nq/nms/type(soft_nms|nms) 参数：先在验证集上大致验证再提交。
-[] fiftyone 检查下test集预测结果，到底是什么原因导致线上分数很低？: 
-[x] 去掉 lr cos annealing 试试
-[] scale 0.8~1.2
-[] randomrotate 90(需要手写，mmdet里的不支持broadcast)
-[] mean fuse 再调下pipeline，看看上限
-[] ensemble / sahi
+# 代码说明
 
-**WARN**
-由于B阶段只有一天时间，两次提交机会。每次提交之后一定注意要保存最优的模型权重，一旦丢失，当天是来不及重新训练的。
-在比赛过程中注意保存最优的两个权重。同时A阶段结束之前3天(6月7号)再次检查是否缺失。
+## 训练配置
 
-**WARN**
-2024年5月17日8:00之前发邮件到大赛邮箱data@tsinghua.edu.cn
-使用的模型权重（下载链接、md5）及数据集
+显卡：A100 40G x 2
+内存: 100G。实际使用可能40G左右。
+batch_size=3, backbone.with_cp=False，transformer.encoder.with_cp=True，显存开销~38G，每个模型大约需要1.5天。
 
+## 环境配置
+项目依赖项并不多，可以直接看`init.sh`
 
-**时间节点**
-0608 10:00 开始准备复现环境
-0610 23:00 线下提交结束、复现环境搭建结束
-0611 10:00 ~ 23:00 B榜
-WANDB 注意关掉
+实际使用的一些关键包的版本如下：
+```
+mmcv                      2.1.0                    pypi_0    pypi
+mmdet                     3.3.0                    pypi_0    pypi
+mmengine                  0.10.3                   pypi_0    pypi
+pytorch                   2.2.2           py3.10_cuda11.8_cudnn8.7.0_0    pytorch
+```
+版本号并不一定需要完全一致，仅供参考.
+
+## 数据
+> 在提交B榜时，额外集成使用外部数据训练的两个模型并没有带来十分显著的收益(不会导致名次差异)，而因为这部分代码实现比较仓促，大部分路径都在代码里写死了，不好适配复现环境。如果不需要严格复现，可以不处理外部数据及相关模型，同时可以跳过此节。`train.sh`默认已经把相关代码注释掉了，如确实有需要，可以手动取消注释。
+
+使用两个公开数据：
+* aistudio: https://aistudio.baidu.com/datasetdetail/206266/0
+* vedai: https://downloads.greyc.fr/vedai/
+
+其中aistudio**需要手动下载**，vedai的下载方式见`train.sh`。
+
+数据需要解压分别放在 `data/aistudio` 与 `data/vedai` 目录下，最终`data`目录树如下所示：
+```
+data
+├── [other folders]
+├── aistudio
+│   ├── original
+│   |   └── original
+│   |       ├── annotations
+│   |       └── imgs
+|   ├── data.csv
+|   └── roundabouts.csv
+└── vedai
+    ├── Annotations512
+    └── Vehicules512
+```
+
+然后直接`python tools/external_data.py`会把这两个外部数据都处理成COCO的标注格式备用。
+
+数据的具体使用详见后文。
 
 
-速度问题:
-注意提交时不要 加--show参数，很慢。
-with mosaic:
-    backbone with_cp=False, encoder with_cp=6, batchsize=1: OOM (eta: >4 days)
-    backbone with_cp=True, encoder with_cp=4,  batchsize=2: OOM (eta: >4 days)
+## 预训练模型
+使用 CoDETR-SwinL-16Epoch-DETR-o365+COCO 的预训练权重，即 [这个表格](https://github.com/open-mmlab/mmdetection/blob/v3.2.0/projects/CO-DETR/README.md#results-and-models) 里的最后一行。
 
-without mosaic:
-    [only tir] backbone with_cp=False, encoder with_cp=6, batchsize=3: ? (eta: ~2 days)
-    [2 modalities] backbone with_cp=False, encoder with_cp=6, batchsize=3 (eta ~2d 8h)
-
-
-更小的img size
-with_cp
-smaller layer / 400 query: 可能会显著影响指标
-larger batch_size: 需要改代码。主要是由于mosaic带来的影响，每个batch里有些样本有mosaic，有些没有，导致分辨率不同。简单的改法是mosaic==1.0
-
-#### submit records
-
-conf-thres=0.5, mosaic + 多模态: 1epoch     线上 0.2686912743221043
-conf-thres=0.5, 单模态: 1 epoch             线上 0.22698282977757558
-
-conf-thres=0    单模态: 1 epoch             线上 0.38238603322554376
-conf-thres=0    单模态: 10 epoch            线上 0.38908813383119695    (0.624)
-conf-thres=0    多模态: 1 epoch             线上 0.39385607852916976    (0.514)
-conf-thres=0    多模态: 10 epoch            线上 0.4477186164130829     (0.649)
-conf-thres=0    多模态: 16 epoch            线上 0.43890585216012845    (0.652): 多训练可能并不会有线上收益! 还需要测试
-
-conf-thres=0    多模态+lrsch+shift+autocontrast: 9 epoch                线上 0.4467967757882764 (0.638)
-conf-thres=0    多模态+lrsch+shift+autocontrast: 10 epoch               线上 0.4480350955482753 (0.638)
-
-conf-thres=0    多模态+lrsch+shift+adaptiveHistEQU+Copypaste+randomsmear: 10 epoch               线上 0.43570007604618116  (0.616) 【更复杂的增广可能没收益了】
-conf-thres=0    多模态+lrsch+shift+adaptiveHistEQU+Copypaste+randomsmear: 16 epoch               线上 0.4282321671406016   (0.632)  【16个epoch 已经过拟合】
-SWA / loss function / 怎么解决漏检过多的问题？
-
-conf-thres=0    多模态+lrsch+shift+autocontrast: 16 epoch               线上 0.4361348096499168 (0.650)  这种融合方式的最优epoch在[10, 15]之间
-                多模态+lrsch+shift+AdaptiveHistEQU+swa+concat deform attn: 10epoch max14e  线上 0.45847593272744164 (0.649) 
-                多模态+lrsch+shift+AdaptiveHistEQU+swa+concat deform attn: 14epoch max14e  线上 0.45142205638384225 (0.650) 
-
-_20240428_173223:
-    **多模态, const lr + cos annealing, 10/13epoch, randshift+AdaptiveHistEQU+swa+concat deform attn: 线上 0.4901899498048514 (0.644 0.866 0.769 0.322 0.647 0.831)** tta 0.4683023883758988 可能参数没调好，需要检查下结果，并且tta可能超时(1h) truck 线上: 0.454919137353518
-    多模态, const lr + cos annealing, 13/13epoch, randshift+AdaptiveHistEQU+swa+concat deform attn: 线上 0.4892719064102989 (0.647 0.868 0.770 0.324 0.650 0.835)
-
-_20240502_114151
-    基于_20240428_173223，调大QualityFocalLoss权重，SWA调早1个epoch，增大MultiScale/Shift范围，pad->0， 10/12 epoch 线上 0.4897002480529805 (0.641 0.863 0.769 0.322 0.644 0.839)
-    ... 12/12 epoch 线上 0.48846226714393864 (0.643)
-
-_20240503_215119
-    基于 _20240502_114151，SWA 调回0428。 9/13 epoch 线上 0.4845854188056091 (0.643) 理论上这个是单模型. [ 有机会测试下7/8epoch的 ]
-    ...  10/13 epoch 线上 0.4861246502594757 (0.644)
-    ...  11/13 epoch 线上 0.48600053907053986 (0.646)  
-    ... 8/13 epoch 线上 0.47316129186568373 (0.639) :    【单模差不多是9/10个epoch最高】
-
-_20240505_140046
-    基于 _20240502_114151，回调QualityFocalLoss权重。 10/12 epoch 线上 0.4882847270360551 (0.642 0.860 0.770 0.277 0.645 0.839)
-    基于 _20240502_114151，回调QualityFocalLoss权重。 12/12 epoch 线上 0.4858214711495492 (0.644 0.862 0.770 0.287 0.646 0.840)
-
-20240507: 基于 _20240428_173223 10 epoch, 去掉边缘小于5像素的框: 0.490305915043059. 提高可以忽略不计。
-
-_20240507_105236:
-    基于 _20240428_173223 训练+验证集合并训练。 10/13 epoch 线上 0.48946345511761813 (0.706 0.926 0.841 0.376 0.712 0.874 <验证集结果仅作参考>)
-
-_20240511_153021:
-    大致基于 _20240428_173223, 修改RandomCrop，Resize离散化、涂黑Crop边缘过小的目标并删除box（想解决图像边缘生成过多无效box的问题）。10/13 epoch 线上 0.4841715521016622 (0.642 0.859 0.767 0.318 0.646 0.835)
-    ... 11/13 epoch 线上 0.4848613478041527 (0.644 0.861 0.772 0.313 0.648 0.837) 无收益
-
-_20240512_180416
-    配置基于 _20240428_173223
-    训练集数据清洗。这个版本验证集暂时没清洗，线下分数无意义。只看线上是否有收益。
-    训练集清洗 1~5100 + 15472-17990 (train_updated.json)
-    10/13 epoch 线上 0.4989366097228196
-    **12/13 epoch 线上 0.5005958718437866 (修正后验证集 0.602 0.810 0.719 0.301 0.611 0.643)**
-    13/13 epoch 线上 0.4994995678118088 (修正后验证集 0.602 0.812 0.721 0.303 0.612 0.643 还是稍微有些过拟合。验证集并不完全干净)
-
-_20240514_173554
-    基于 _20240512_180416
-    加 DualModalCutOut
-    10/13 线上 0.4979335950223399 (0.600 0.809 0.720 0.312 0.611 0.658)
-    12/13 线上 0.498425164277342  (0.602 0.811 0.720 0.316 0.612 0.660)
-        子类别线上分数
-        van(0.05716354848148401*5=0.28581774240742003),
-        bus(0.13601968979420329*5=0.6800984489710165)
-
-_20240516_094744
-    基于 _20240428_173223。*没有 DualModalCutOut*
-    基本完全清洗数据。
-    **10/13 线上 0.3713848057814872 + 0.13601194238769948(bus) = 0.5073967481691867 (0.636 0.857 0.762 0.326 0.643 0.666)**
-    12/13 线上 0.36962252792366507+ 0.13644064670397224(bus) = 0.506063174627637  (0.639 0.860 0.764 0.335 0.645 0.670)
-    需要检查下 test检测结果。可能是van过拟合了。
-
-
-_20240517_170556
-    基于 _20240516_094744
-    调整了 lr_sch 最终的学习率: eta_min=base_lr * 0.5
-    10/13 epoch 线上 0.5020464560493408 (0.641 0.861 0.764 0.304 0.648 0.680)
-    12/13 epoch 线上 0.5019061583099873 (0.644 0.864 0.767 0.318 0.651 0.682)
-
-_20240518_234754
-    基于 _20240428_173223
-    调整训练集中前 5000 张的van标注: 原来大部分类似van但标成car的
-    *验证集没有同步修改，因此可能不具有参考意义*
-    改了 test soft_nms 阈值 0.8->0.7
-    **epoch 9/13 线上 0.44252119400472606 + 0.07489918001367844(van) = 0.5174203740184045 (0.616 0.829 0.736 0.306 0.621 0.694)**
-        truck: 0.09277150236166*5 = 0.4638575118083
-        freight_car: 0.10356438085956061*5 = 0.517821904297803
-        car(大致): 0.109 * 5 = 0.545
-        |0.545      0.4638575118083     0.6800597119384975     0.37449590006839223     0.517821904297803|
-
-    epoch 10/13 线上 0.4428001436718439 + 0.07365442512415667(van) = 0.5164545687960006 (0.617 0.829 0.736 0.312 0.620 0.686)
-
-
-_20240520_153439
-    基于 _20240518_234754。*验证集同样是_20240518_234754，不太具有参考意义。*
-    Sparse4D Denoise Query
-    10/13 epoch 线上 0.5188770992686201 (0.618 0.830 0.738 0.318 0.623 0.682)
-    **12/13 epoch 线上 0.5189131837830901 (0.620 0.832 0.742 0.320 0.624 0.686) (val_0527 0.666 0.894 0.800 0.339 0.670 0.859)**
-
-_20240521_223415
-    基于 _20240520_153439 MultiInputMosaic
-    10/13 epoch 线上 0.4801529305281125 (0.600 0.810 0.719 0.219 0.606 0.679)
-
-_20240523_182025
-    基于 _20240520_153439 MultiInputMixPadding
-    10/13 epoch 线上 0.5153156250599193 (0.610 0.824 0.731 0.316 0.613 0.678)
-    11/13 epoch 线上 0.5163167392169172 (0.612 0.827 0.734 0.319 0.616 0.678)
-    13/13 epoch 线上 0.5161609162894628 (0.613 0.828 0.735 0.321 0.617 0.683)
-
-_20240526_000414[git 未提交]
-    基于 _20240520_153439 调小scale -> (0.8, 1.2)
-    9/13 epoch 线上 0.510769171502247 (0.617 0.828 0.738 0.292 0.623 0.662) 哪个类别低了？
-    12/13 epoch 线上 0.5067752237317477 (0.624 0.835 0.744 0.304 0.629 0.667) 过拟合。(val_0527 0.660 0.890 0.793 0.340 0.662 0.857)
-
-_20240527_101247
-    基于 _20240520_153439. train_0527 *验证集同样是_20240518_234754，不太具有参考意义。*
-    9/13 epoch 线上 -- (val_updated 0.597 0.800 0.715 0.303 0.599 0.680) (val_0527 0.672 0.901 0.808 0.345 0.673 0.862)
-    **10/13 epoch 线上 0.5196930767516853 (val_updated 0.599 0.803 0.719 0.302 0.601 0.680) (val_0527 0.672 0.901 0.810 0.344 0.673 0.862)**
-    12/13 epoch 线上 0.5194134889532678 (val_updated 0.600 0.803 0.719 0.303 0.602 0.681) (val_0527 0.672 0.901 0.809 0.336 0.674 0.863)
-
-_20240528_194827
-    基于 _20240527_101247 和 _20240523_182025 验证集更新; 两阶段pipeline: MultiInputMixPadding(*7) + 常规pipeline
-    9/13 epoch 线上 0.5207424874570967 (val_0527 0.666 0.898 0.806 0.338 0.669 0.860)
-    **10/13 epoch 线上 0.5228739374174444 (val_0527 0.667 0.898 0.807 0.342 0.670 0.860)** van: 0.07756455240956982 * 5 = 0.3878227620478491
-    12/13 epoch 线上 0.5225812324246998 (val_0527 0.668 0.899 0.809 0.348 0.671 0.862)
-
-_20240530_092722 (mean_fuse)
-    MultiInputMosaic*6 + 常规pipeline
-    11/13 epoch 线上 0.5202136765716092 (val_0527 0.667 0.896 0.803 0.334 0.669 0.863)
-    13/13 epoch 线上 0.5200951346653668 (val_0527 0.670 0.898 0.806 0.337 0.672 0.865)
-
-_20240531_141605_fold_x
-    基于 _20240528_194827
-    fold0: 12epoch 线上 0.5190668677895692 (val_0527 0.666 0.898 0.803 0.330 0.668 0.863)
-           10 epoch 线上 0.5170592197953877(=0.1788830576050569 + 0.3381761621903308) (val_0527 0.664 0.896 0.800 0.307 0.666 0.862)
-
-20240601
-    ensemble:
-    _20240528_194827(epoch10) + _20240530_092722(epoch11) + _20240531_141605_fold_0(epoch12)
-    skip/nms = 0.05/0.7
-    线下大概 0.6838240481705212 or (0.674291 0.902451 0.811669 0.350855 0.675636 0.865489)
-    线上0.5316742459794518
-
-    skip/nms = 0.11/0.65
-    线下大概 0.6930203193886105 or (0.673144 0.901855 0.810492 0.350491 0.674765 0.863098) 
-    线上 0.5286825228260283. 可能还是COCO的准
-
-20240602
-    ensemble:
-    skip/nms = 0.07/0.8
-    work_dirs/mean_fuse/_20240530_092722/epoch_11_submit.pkl \
-    work_dirs/codetr_all_in_one/_20240531_141605_fold_0/epoch_12_submit.pkl \
-    work_dirs/codetr_all_in_one/_20240528_194827/epoch_10_submit.pkl \
-    work_dirs/codetr_all_in_one/_20240520_153439/epoch_12_submit.pkl \
-    work_dirs/codetr_all_in_one/_20240531_141605_fold_1/epoch_11_submit.pkl \
-    线下大概 0.687434782 or (0.676031864	0.90358325	0.815278186	0.353419017	0.677676455	0.865931577)
-    线上 0.534338450353712
-
-    线下 0.690895491 or (0.675792044	0.904133767	0.81357435	0.353456609	0.677401048	0.864757538)
-    线上 0.5330973930313206
-
-
-20240603
-    ensemble:
-    0.07/0.75
-    ```
-    python scripts/ensemble.py -p \
-        work_dirs/codetr_all_in_one/_20240520_153439/epoch_12_submit.pkl \
-        work_dirs/codetr_all_in_one/_20240528_194827/epoch_10_submit.pkl \
-        work_dirs/mean_fuse/_20240530_092722/epoch_11_submit.pkl \
-        work_dirs/codetr_all_in_one/_20240531_141605_fold_0/epoch_12_submit.pkl \
-        work_dirs/codetr_all_in_one/_20240531_141605_fold_1/epoch_12_submit.pkl \
-        work_dirs/codetr_all_in_one/_20240531_141605_fold_2/epoch_12_submit.pkl \
-        -o ensemble_exp/submit_`date +"%m%d_%H%M%S"`
-    ```
-    线下大概 0.688424174 (0.677093871	0.905373239	0.816539492	0.352021417	0.678945491	0.864768281)
-    线上 0.5344882749788099
-
-    _20240531_141605_fold_2/epoch_12_submit 线上 0.52159267842541
-    0.11/0.7 线上 0.5323533461235721
-
-
-20240604
-    ensemble:
-    0.07/0.75
-    ```
-    python scripts/ensemble.py -p \
-        work_dirs/codetr_all_in_one/_20240520_153439/epoch_12_submit.pkl \
-        work_dirs/codetr_all_in_one/_20240528_194827/epoch_10_submit.pkl \
-        work_dirs/mean_fuse/_20240530_092722/epoch_11_submit.pkl \
-        work_dirs/codetr_all_in_one/_20240531_141605_fold_0/epoch_12_submit.pkl \
-        work_dirs/codetr_all_in_one/_20240531_141605_fold_1/epoch_12_submit.pkl \
-        work_dirs/codetr_all_in_one/_20240531_141605_fold_2/epoch_12_submit.pkl \
-        work_dirs/codetr_all_in_one/_20240531_141605_fold_3/epoch_12_submit.pkl \
-        -o ensemble_exp/submit_`date +"%m%d_%H%M%S"`
-    ```
-    线下大概 0.687961541 (0.677108555	0.906284883	0.816691961	0.352587451	0.678711164	0.865270554)
-    线上 0.5339383937498916
-
-
-20240605
-    ensemble:
-    0.07/0.75
-    ```
-    python scripts/ensemble.py -p \
-        work_dirs/codetr_all_in_one/_20240520_153439/epoch_12_submit.pkl \
-        work_dirs/codetr_all_in_one/_20240528_194827/epoch_10_submit.pkl \
-        work_dirs/mean_fuse/_20240530_092722/epoch_11_submit.pkl \
-        work_dirs/codetr_all_in_one/_20240531_141605_fold_0/epoch_12_submit.pkl \
-        work_dirs/codetr_all_in_one/_20240531_141605_fold_1/epoch_12_submit.pkl \
-        work_dirs/codetr_all_in_one/_20240531_141605_fold_2/epoch_12_submit.pkl \
-        work_dirs/codetr_all_in_one/_20240531_141605_fold_4/epoch_12_submit.pkl \
-        -o ensemble_exp/submit_`date +"%m%d_%H%M%S"`
-    ```
-    线上 0.5334507961984957
-    _20240531_141605_fold_4/epoch_12_submit.pkl 线上 0.5126251971559532 <最低分>
-
-
-20240607
-    ```
-    python scripts/ensemble.py -p \
-        work_dirs/codetr_all_in_one/_20240520_153439/epoch_12_submit.pkl \
-        work_dirs/codetr_all_in_one/_20240528_194827/epoch_10_submit.pkl \
-        work_dirs/mean_fuse/_20240530_092722/epoch_11_submit.pkl \
-        work_dirs/codetr_all_in_one/_20240531_141605_fold_0/epoch_12_submit.pkl \
-        work_dirs/codetr_all_in_one/_20240531_141605_fold_1/epoch_12_submit.pkl \
-        work_dirs/codetr_all_in_one/_20240531_141605_fold_2/epoch_12_submit.pkl \
-        work_dirs/mean_fuse/_20240607_092457/epoch_11_submit.pkl \
-        -o ensemble_exp/submit_`date +"%m%d_%H%M%S"`
-    ```
-    线上 0.5356947630570912
-
-0608
-    python scripts/ensemble.py -p \
-        work_dirs/codetr_all_in_one/_20240520_153439/epoch_12_submit.pkl \
-        work_dirs/codetr_all_in_one/_20240528_194827/epoch_10_submit.pkl \
-        work_dirs/mean_fuse/_20240530_092722/epoch_11_submit.pkl \
-        work_dirs/codetr_all_in_one/_20240531_141605_fold_0/epoch_12_submit.pkl \
-        work_dirs/codetr_all_in_one/_20240531_141605_fold_1/epoch_12_submit.pkl \
-        work_dirs/codetr_all_in_one/_20240531_141605_fold_2/epoch_12_submit.pkl \
-        work_dirs/mean_fuse/_20240607_092457/epoch_11_submit.pkl \
-        work_dirs/codetr_all_in_one/_20240607_222820/epoch_12_submit.pkl \
-        -o ensemble_exp/submit_`date +"%m%d_%H%M%S"`
-
-    线上 0.5372200160553522
-
-## TODO
-conf-thres=0    mosaic + 多模态: 1epoch     线上 ?
-conf-thres=0    mosaic + 多模态: ~5epoch    线上 
-
-conf-thres=0    多模态: x epoch 增广rgb     线上 ?
-
-
-## environment
+另外建议同时下载 swin-large backbone的ckpt，否则需要注释配置里的`pretrained`字段。
 
 ```
-conda create --name gaiic python=3.10 mamba -y
-conda activate gaiic
+wget https://download.openmmlab.com/mmdetection/v3.0/codetr/co_dino_5scale_swin_large_16e_o365tococo-614254c9.pth
 
-mamba install pytorch torchvision torchaudio pytorch-cuda=11.8 cuda-toolkit -c pytorch -c nvidia/label/cuda-11.8.0 -y
-mamba install openmim einops wandb seaborn -y
-pip install fairscale scikit-learn
-pip install ensemble-boxes
-pip install transformers     # glip
-
-mim install mmengine
-mim install "mmcv>=2.0.0"
-mim install mmdet
+wget https://github.com/SwinTransformer/storage/releases/download/v1.0.0/swin_large_patch4_window12_384_22k.pth
 ```
+
+## 算法
+
+### 整体思路介绍
+最终b榜提交两次:
+
+9模型: 分数 0.48887175566920904 (包含两个外部数据模型)
+
+3模型: 分数 0.48128947817837825 (无需外部数据)
+
+-------
+
+所有模型都基于前述 Co-DETR，区别在于训练数据、pipeline、网络结构、加载的预训练参数不同:
+* 对于训练数据，我们手动清洗了训练集和验证集，修正了大部分的类别标注，bbox基本不做修正。
+* 对于数据增强pipeline，大致有两种：一种是常规的一阶段数据增强pipeline；一种是两阶段的，即前x个epoch先用一些强增广，后x个epoch切换为常规增广pipeline。
+* 对于网络结构方面，为了最大程度地利用上预训练的参数，仅对`query_head.transformer.encoder`中的attention做了两种变形，以融合双光。
+* 对于预训练参数，也有两种：一种是直接加载官方权重（下载方式见前文）；一种是基于官方权重，额外使用外部数据训练，最后在比赛数据上训练模型。
+
+### 数据
+
+我们用一些标注工具，对训练集、验证集重新人工清洗，主要修改 truck/van/freight_car 三类的类别标注，最终保留了两个版本的（训练）标注文件：
+* version 0518: `data/track1-A/annotations/train_0518.json`
+* version 0527: `data/track1-A/annotations/train_0527.json`
+
+两者差异主要在van类别，0527清洗得更加激进：把一些原来官方标注为car的也调整为van。
+
+验证集只有一个版本 `data/track1-A/annotations/val_0527.json`
+
+### 数据增强 pipeline
+
+* 常规一阶段增强
+    ```
+    train_pipeline = [
+        dict(type="LoadImageFromFile"),
+        dict(type="LoadTirFromPath"),
+        dict(type="LoadAnnotations", with_bbox=True),
+        dict(type='AdaptiveHistEQU'),       # 自适应对比度
+        dict(type='RandomShiftOnlyImg', max_shift_px=10, prob=0.5), # 随机平移RGB图像
+        dict(
+            type="BugFreeTransformBroadcaster",
+            mapping={
+                "img": ["tir", "img"],
+                "img_shape": ["img_shape", "img_shape"],
+                "gt_bboxes": ['gt_bboxes', 'gt_bboxes'],
+                "gt_bboxes_labels": ['gt_bboxes_labels', 'gt_bboxes_labels'],
+                "gt_ignore_flags": ['gt_ignore_flags', 'gt_ignore_flags'],
+            },
+            auto_remap=True,
+            share_random_params=True,
+            transforms=[
+                dict(
+                    type='RandomResize',
+                    scale=image_size,
+                    ratio_range=(0.75, 1.5),
+                    keep_ratio=True
+                ),
+                dict(
+                    type='RandomCrop',
+                    crop_type='absolute',
+                    crop_size=image_size,
+                    allow_negative_crop=False,
+                ),
+                dict(type='RandomFlip', prob=0.5),
+                dict(type='Pad', size=image_size, pad_val=dict(img=(114, 114, 114))),
+            ],
+        ),
+        dict(type="CustomPackDetInputs"),
+    ]
+    ```
+
+* 两阶段增强pipeline
+
+    先采用带 mosaic(或类似) 的增广方式训练几个epoch，然后切换为上述常规pipeline。因为mosaic增广的图像更加丰富，但小目标经常会在边界处截断，反而不利于模型学习，完全采用mosaic的增广pipeline会导致模型性能下降。
+
+    带mosaic的pipeline大致如下（**不同模型略有差异**，详见配置代码）：
+    ```
+    train_pipeline_stage1 = [
+        dict(
+            type='MultiInputMosaic',
+            keys=['img', 'tir'],
+            prob=1.0,
+            img_scale=image_size,
+            center_ratio_range=(0.5, 1.05), 
+            pad_val=114.0,
+            bbox_clip_border=True,
+            individual_pipeline=[
+                dict(type="LoadImageFromFile"),
+                dict(type="LoadTirFromPath"),
+                dict(type="LoadAnnotations", with_bbox=True),
+                dict(type='AdaptiveHistEQU'),
+                dict(type='RandomShiftOnlyImg', max_shift_px=10, prob=0.5),
+                dict(**transform_broadcast, transforms=[
+                dict(type='RandomRotate90', prob=0.5, dir=['l']),
+                dict(type='RandomFlip', prob=0.5, direction=['horizontal', 'vertical', 'diagonal']),
+                ])
+            ]
+        ),
+        dict(
+            **transform_broadcast,
+            transforms=[
+                dict(
+                    type='RandomAffine',
+                    scaling_ratio_range=(0.65, 1.5),
+                    max_translate_ratio=0.1,
+                    max_rotate_degree=0,
+                    max_shear_degree=0,
+                    border=(-image_size[0] // 2, -image_size[1] // 2)
+                ),
+                dict(
+                    type='RandomResize',
+                    scale=image_size,
+                    ratio_range=(0.8, 1.1),
+                    keep_ratio=True
+                ),
+                dict(type='Pad', size_divisor=4, pad_val=dict(img=(114, 114, 114))),
+            ],
+        ),
+        dict(type='FilterAnnotations', min_gt_bbox_wh=(3, 3), keep_empty=False),
+        # dict(type='Normalize', mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True),
+        dict(type="CustomPackDetInputs"),
+    ]
+    ```
+    训练约7个epoch后会切换为常规pipeline。切换的操作可以通过`PipelineSwitchHook`实现，无需手动。
+
+
+
+### 网络结构
+原始的 Co-DETR 仅支持RGB图像检测，为了支持输入两个模态的图像，同时尽量不对网络结构有较大改动，从而能利用上尽可能多的预训练参数，两种改动只针对 Encoder 的 Attention 部分。
+
+具体有以下两种变式：
+
+* mean
+
+    Encoder每一层计算self-attention时，query除了与自身计算attention（RGB特征的self-attention），还与红外光特征计算一次attention，然后两者取平均作为输出。
+
+* concat
+
+    Encoder每一层计算self-attention时，RGB特征与红外特征直接在长度维concat作为query，双光的特征图也直接concat，原来每个模态默认有4个不同尺度的特征图，修改后共有8个特征图作为value。此时query（及输出）的特征数量变为原来两倍，最终Encoder输出时，只取前一半query对应的输出即可。
+由于特征图数量有改动，需要相应修改 DeformAttn 中 reference point 的参数形状，`scripts/patch_ckpt.py`完成此功能。
+
+
+
+### 预训练参数
+
+存在两种预训练参数，用于模型初始化：
+
+* official
+
+    直接使用官方权重
+
+* pretrain
+
+    先加载官方权重，然后合并使用前述两个外部数据训练一个模型，训练完成后，其他模型会加载该模型参数继续在官方数据上训练。
+
+
+
+### 模型集成
+
+通过选用不同的组件，可以搭配出不同的模型。B榜实际提交两次：
+
+* 9模型版本
+
+|   | 数据增强pipeline   | 网络结构   | 数据 | 预训练参数 | 备注 | 文件名 |
+|---|----------------------|--------|------|-----------|--------|--------|
+| 1 | 一阶段               | concat | 0518 | official  |        |codetr_full_0518data|
+| 2 | 两阶段               | concat | 0527 | official  |        |codetr_full_0527data|
+| 3 | 两阶段               | mean   | 0527 | official  |        |mean_fuse_full|
+| 4 | 两阶段               | mean   | 0527 | pretrain  |        |mean_fuse_with_pretrained|
+| 5 | 两阶段               | concat | 0527 | official  | fold 0 |codetr_0527fold0|
+| 6 | 两阶段               | concat | 0527 | official  | fold 1 |codetr_0527fold1|
+| 7 | 两阶段               | concat | 0527 | official  | fold 2 |codetr_0527fold2|
+| 8 | 两阶段(更强)         | concat | 0527 | official  |        |codetr_full_0527data_strong_aug|
+| 9 | 两阶段(更强)         | concat | 0527 | pretrain  |        |codetr_full_0527data_strong_aug_with_pretrain|
+
+ensemble 参数: skip/nms = 0.07/0.75
+
+A榜	0.5384122069865042，B榜 0.48887175566920904
+
+其中模型5/6/7是用模型2的数据划分5折后的前三折数据分别训练得到，5折划分训练数据由脚本`scripts/split_nfold.py`提供。
+
+* 3模型版本
+
+|   | 数据增强pipeline   | 网络结构   | 数据 | 预训练参数 | 备注 | 文件名 |
+|---|----------------------|--------|------|-----------|--------|--------|
+| 2 | 两阶段               | concat | 0527 | official  |        |codetr_full_0527data|
+| 3 | 两阶段               | mean   | 0527 | official  |        |mean_fuse_full|
+| 5 | 两阶段               | concat | 0527 | official  | fold 0 |codetr_0527fold0|
+
+ensemble 参数: skip/nms = 0.05/0.7
+
+A 榜 0.5316742459794518，B 榜 0.48128947817837825
+
+### 算法的其他细节
+
+* SWA
+* lr schedular
+* 从A榜来看，10个epoch分数最高，一般不取最后一个epoch的权重
+* 推理时超参: soft_nms `iou_thres=0.7`
+
+## 训练流程（必选）
+见`train.sh`
+
+`bash train.sh`
+
+## 测试流程（必选）
+见`test.sh`， 运行时**需要指定参数**:
+`bash test.sh [input_dir] [data_root] [output_json]`
+
+`input_dir`放测试数据，`data_root`是`input_dir`的上级目录，`output_json`是输出文件路径（目前需要保证其目录已经存在）。
+
+例如：
+
+`bash test.sh data/track1-A/test data/track1-A  data/result/pred.json`
+
+具体也可以参考`index.py`里的调用方法。
+
+## 其他注意事项
+* `train.sh` 没有完全测试，可能不一定跑通。
+* 为简化复现训练流程，可以忽略采用外部数据的两个模型，仅集成其余7个模型不影响线上成绩；仅复现B榜提交的3个模型，也不影响B榜排名，与A榜约有6个千分点的差异，可能影响A榜排名。
+* 训练时采用`batch_size=3`， 约需40G显存，A100 x 2 每个模型需要约 1.5 天。复现时如果显存不够可以考虑把`backbone`的`with_cp`设为`True`，或者`batch_size=1`，但训练时间会更长。
+* 代码组织结构与规范略有不同。`projects`里是核心代码；`scripts`目录里是一些自定义工具类脚本，例如5折划分、生成提交文件、可视化等等；`tools`里是来自`mmdet`里的`tools`文件夹，主要是`train.py`与`test.py`,对比官方略有修改。下载的预训练权重会放在`ckpt`文件夹。

@@ -19,6 +19,8 @@ def parse_args():
     # parser.add_argument('-s', "--skip_scores", type=float, default=0.15)
     parser.add_argument('-a', "--annotation", type=str)
     parser.add_argument("-o", "--output", type=str)
+    parser.add_argument('--skip', type=float, default=0.07)
+    parser.add_argument('--nms', type=float, default=0.75)
     return parser.parse_args()
 
 
@@ -149,8 +151,8 @@ if __name__ == "__main__":
     records = []
     # for skip_thres in np.arange(0.02, 0.15, 0.01):
     #     for nms_thres in np.arange(0.6, 0.96, 0.05):
-    for skip_thres in [0.07]:
-        for nms_thres in [0.75]:
+    for skip_thres in [args.skip]:
+        for nms_thres in [args.nms]:
             final_res = to_std_format({k: ensemble_v2(preds, skip_thres, nms_thres) for k, preds in all_preds.items()})
             if anno is not None:
                 p, r, ap, f1 = map_score(

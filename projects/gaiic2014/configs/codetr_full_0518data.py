@@ -50,7 +50,8 @@ num_classes = 5
 dataset_type = "GAIIC2014DatasetV2"
 data_root = "data/track1-A/"
 pretrained = "ckpt/swin_large_patch4_window12_384_22k.pth"
-load_from = "ckpt/codino_pretrained_240607_epoch10_patched.pth"
+load_from = "ckpt/co_dino_5scale_swin_large_16e_o365tococo-614254c9_patched.pth"
+# load_from = "ckpt/co_dino_5scale_swin_large_16e_o365tococo-614254c9.pth"
 
 # image_size = (1024, 1024)
 # batch_augments = [
@@ -120,7 +121,6 @@ model = dict(
         in_channels=2048,
         as_two_stage=True,
         dn_cfg=dict(
-            type="Sparse4Dv3QueryGenerator",
             label_noise_scale=0.5,
             box_noise_scale=0.4,
             group_cfg=dict(num_dn_queries=500),
@@ -402,39 +402,7 @@ transform_broadcast = dict(
     share_random_params=True,
 )
 
-train_pipeline_stage1 = [
-    dict(
-        type='MultiInputMixPadding',
-        keys=['img', 'tir'], size=image_size, block_if_below=0.5, pad_val=(114, 114, 114),
-        individual_pipeline=[
-            dict(type="LoadImageFromFile"),
-            dict(type="LoadTirFromPath"),
-            dict(type="LoadAnnotations", with_bbox=True),
-            dict(type='AdaptiveHistEQU'),
-            dict(type='RandomShiftOnlyImg', max_shift_px=10, prob=0.5),
-            dict(**transform_broadcast, transforms=[
-                dict(
-                    type='RandomResize',
-                    scale=image_size,
-                    ratio_range=(0.7, 1.5),
-                    keep_ratio=True
-                ),
-                dict(
-                    type='RandomCrop',
-                    crop_type='absolute',
-                    crop_size=image_size,
-                    allow_negative_crop=False,
-                ),
-            #    dict(type='Rotate', prob=0.9, min_mag=90., max_mag=90.),
-                dict(type='RandomFlip', prob=0.5, direction=['horizontal', 'vertical', 'diagonal']),
-            ])
-        ]
-    ),
-    # dict(type='Normalize', mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True),
-    dict(type="CustomPackDetInputs"),
-]
-
-train_pipeline_stage2 = [
+train_pipeline = [
     dict(type="LoadImageFromFile"),
     dict(type="LoadTirFromPath"),
     dict(type="LoadAnnotations", with_bbox=True),
@@ -471,19 +439,11 @@ train_dataloader = dict(
         type=dataset_type,
         data_root=data_root,
         serialize_data=False,
-        ann_file="annotations/train_0527.json",
+        ann_file="annotations/train_0518.json",
         data_prefix=dict(img_path="train/rgb", tir_path="train/tir"),
         # filter_cfg=dict(filter_empty_gt=False, min_size=32),
-        pipeline=train_pipeline_stage1,
+        pipeline=train_pipeline,
     ),
-)
-default_hooks = dict(
-    **default_hooks,
-    switch=dict(
-        type='PipelineSwitchHook',
-        switch_epoch=7,
-        switch_pipeline=train_pipeline_stage2
-    )
 )
 
 val_pipeline = [

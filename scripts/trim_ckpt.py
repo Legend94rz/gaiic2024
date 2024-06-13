@@ -27,4 +27,5 @@ if __name__ == "__main__":
     ckpt.pop('ema_state_dict', None)
     ckpt.pop('optimizer')
     ckpt.pop('param_schedulers')
-    torch.save(ckpt, Path(args.save_path))
+    Path(args.save_path).parent.mkdir(parents=True, exist_ok=True)
+    torch.save(ckpt, args.save_path)
