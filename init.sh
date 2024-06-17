@@ -9,5 +9,5 @@ pip install ensemble-boxes
 pip install pycocotools pandas matplotlib
 
 mim install mmengine
-mim install "mmcv==2.2.0"
+mim install "mmcv==2.1.0"
 mim install mmdet

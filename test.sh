@@ -6,6 +6,13 @@ ckpt_folder=data/best_model
 opt1="test_dataloader={'batch_size': 2, 'num_workers': 8, 'dataset': {'ann_file': 'annotations/test.json', 'data_root': '${data_root}', 'data_prefix': {'img_path': '$4/rgb', 'tir_path': '$4/tir'}}}"
 opt2="test_evaluator={'ann_file': '${data_root}/annotations/test.json'}"
 
+# 数据路径整理(为了避免修改代码)
+pushd data/track1-A
+ln -s ../contest_data/train train
+ln -s ../contest_data/val val
+ln -s ../contest_data/test test
+popd
+
 python scripts/make_test_json_input.py "${input_dir}" --save_path "${data_root}"/annotations/test.json
 
 WANDB_MODE=offline PYTHONPATH=. python tools/test.py \
